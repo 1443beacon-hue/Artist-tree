@@ -1,0 +1,132 @@
+# 실제 API 설정
+
+서버 연동과 UI는 구현되어 있습니다. 하지만 **키를 넣는 것과 실제 인증 성공은 다릅니다.** 화면 아래 `API status & source credits`에서 출처별 설정 여부와 실제 응답 기록을 확인하세요.
+
+## 1. 환경변수 파일 준비
+
+Node.js **22.12 이상**이 필요합니다. 프로젝트 폴더에서 `.env.example`을 `.env`로 복사하세요. 기존 `.env`가 있다면 덮어쓰지 마세요.
+
+```sh
+cp -n .env.example .env
+```
+
+`.env`를 로컬 편집기로 열어 아래 정보를 입력합니다. **토큰·Client Secret·개인 키를 채팅에 보내거나 Git에 커밋하지 마세요.** `.env`, `.p8`, `.pem` 파일은 `.gitignore`에 포함되어 있고 웹 서버에서도 공개하지 않습니다.
+
+## 2. Genius
+
+1. https://genius.com/api-clients 에서 로그인하고 API Client를 생성합니다.
+2. `Generate Access Token`으로 **Client Access Token**을 발급합니다.
+3. `.env`의 `GENIUS_ACCESS_TOKEN`에 넣습니다. 이 읽기 전용 연동에는 사용자 로그인이나 Client Secret이 필요하지 않습니다.
+
+```dotenv
+GENIUS_ACCESS_TOKEN=발급받은_토큰
+```
+
+공식 API의 검색·아티스트·곡 상세만 사용합니다. 가사는 스크래핑하거나 표시하지 않습니다. `producer_artists`, `featured_artists` 등 실제 응답에 있는 크레딧만 관계로 표시합니다. 한 묶음에서 최대 8곡을 확인하고, 연결을 다 펼치면 공식 `next_page`를 따라 다음 곡 묶음을 조회합니다. 처음 8곡에서 탐색을 종료하지 않습니다. 필드가 없으면 관계를 추측하지 않습니다.
+
+문서: https://docs.genius.com/
+
+비상업적 프로젝트라도 API 약관은 적용됩니다. 추후 상업화하면 Genius에 별도 라이선스를 문의해야 합니다.
+
+## 3. Spotify
+
+1. https://developer.spotify.com/dashboard 에서 앱을 만듭니다.
+2. 앱의 `Client ID`와 `Client Secret`을 `.env`에 입력합니다.
+3. 읽기 전용 **Client Credentials**로 서버가 액세스 토큰을 발급·갱신합니다. 이 기능에는 Spotify 사용자 로그인이나 redirect callback이 필요하지 않습니다.
+
+```dotenv
+SPOTIFY_CLIENT_ID=앱의_Client_ID
+SPOTIFY_CLIENT_SECRET=앱의_Client_Secret
+SPOTIFY_MARKET=US
+```
+
+신규 개발 앱의 계정·Premium·엔드포인트 접근 제한은 Spotify 정책을 따라야 합니다. 올바른 키가 있어도 `403`이면 해당 앱에 허용되지 않은 요청일 수 있습니다. 비공개 API나 제한 우회는 사용하지 않습니다.
+
+사용하는 기능: 검색, 아티스트, 아티스트의 발매 목록, 앨범 트랙. 같은 트랙의 명시된 참여 아티스트만 협업으로 연결합니다. **유사 아티스트·추천·오디오 분석·프로듀서 크레딧 API는 사용하지 않습니다.**
+
+### Spotify 전용 탐색 화면
+
+Spotify의 콘텐츠 표시·브랜딩 지침 때문에 Spotify 결과는 검색창 아래 별도 구역에 표시되고, 선택하면 **Spotify 데이터만 표시하는 새 탐색 화면**이 열립니다. 기본 지도에 Spotify에서 얻은 관계와 이미지를 섞지 않습니다. 다른 출처에서 확인한 Spotify 아티스트 페이지 링크는 감상 링크로 제공할 수 있습니다.
+
+Spotify 화면에서는 공식 로고와 링크를 제공하고 이미지를 원형으로 자르거나 채색하지 않으며, Spotify 이미지 자체를 확대·부유 애니메이션으로 변형하지 않습니다. 한 탐색 화면과 검색 결과 세트는 최대 20명으로 제한합니다. 새 아티스트 검색 결과는 새 Spotify 전용 탐색 창으로 이어집니다. 기본 지도에는 이 20명 제한을 적용하지 않습니다. 이 구현이 모든 이용 조건에 대한 승인을 의미하지는 않습니다. 공개 전 지침과 실제 UI를 다시 검토하세요.
+
+- 인증: https://developer.spotify.com/documentation/web-api/tutorials/client-credentials-flow
+- 표시 지침: https://developer.spotify.com/documentation/design
+
+## 4. Apple Music
+
+Apple Developer Program 가입 및 MusicKit 개발자 자격이 필요합니다. 카탈로그 조회만 하므로 방문자의 Apple Music 로그인·구독이나 Music User Token은 요청하지 않습니다. 전체 곡 재생은 구현하지 않습니다.
+
+아래 **둘 중 한 방식**을 사용하세요.
+
+### A. 이미 개발자 토큰이 있는 경우
+
+```dotenv
+APPLE_MUSIC_DEVELOPER_TOKEN=유효한_개발자_JWT
+APPLE_MUSIC_STOREFRONT=us
+```
+
+직접 입력한 토큰은 서버가 재발급할 수 없습니다. 만료되면 새 토큰으로 교체하고 재시작하세요.
+
+### B. MusicKit 개인 키로 서버가 JWT를 만드는 경우
+
+Apple Developer의 Certificates, Identifiers & Profiles에서 MusicKit용 식별자와 개인 키를 만들고 `.p8` 파일을 안전한 로컬 위치에 보관하세요.
+
+```dotenv
+APPLE_MUSIC_TEAM_ID=10자리_Team_ID
+APPLE_MUSIC_KEY_ID=10자리_Key_ID
+APPLE_MUSIC_PRIVATE_KEY_PATH=/절대경로/AuthKey_키ID.p8
+APPLE_MUSIC_STOREFRONT=us
+```
+
+이 경우 `APPLE_MUSIC_DEVELOPER_TOKEN`은 비워두세요. 서버가 ES256으로 1시간짜리 토큰을 생성하고 갱신합니다. `.p8` 내용은 프런트엔드로 보내지 않습니다.
+
+검색·아티스트 이미지·`similar-artists`·최대 8개 상위 곡의 참여자 조회에 사용합니다. **유사 추천은 실제 공동 작업 크레딧과 구분합니다.**
+
+문서: https://developer.apple.com/documentation/applemusicapi/generating-developer-tokens
+
+## 5. MusicBrainz
+
+공개 읽기에는 키가 없습니다. `MUSICBRAINZ_USER_AGENT`에 앱 이름·버전과 본인의 실제 연락 수단을 설정하는 것을 권장합니다.
+
+```dotenv
+MUSICBRAINZ_USER_AGENT="Artistree/0.2.0 (contact: 본인의_이메일)"
+```
+
+서버 전체가 하나의 요청 큐를 사용하며 요청 간격은 최소 1.1초입니다. 한 묶음에서 최대 5개 녹음 크레딧을 조사하고, 추가 연결이 필요하면 녹음 목록의 다음 offset을 조회하므로 다른 출처보다 느릴 수 있습니다. 이미 확인된 출처의 조회와 MusicBrainz 신원 확인을 병렬로 진행하고, 확인된 크레딧부터 스트리밍하므로 모든 녹음 조회가 끝날 때까지 기다리지 않습니다. 프로듀서로만 참여한 모든 작품을 완전히 조회하는 것은 아닙니다. 비상업 공개 API와 데이터 자체의 라이선스도 별도로 확인하세요.
+
+문서: https://musicbrainz.org/doc/MusicBrainz_API
+
+## 6. 재시작 및 확인
+
+`.env`를 수정한 뒤 실행 중인 서버를 종료하고 다시 켜세요.
+
+```sh
+npm run dev
+```
+
+http://127.0.0.1:3000 에서 새로고침합니다.
+
+- **Configured**: 필요한 환경변수가 있습니다. 인증 성공을 뜻하지 않습니다.
+- **Responding**: 이번 서버 실행 중 해당 출처가 실제 데이터를 반환했습니다.
+- **not configured**: 키가 없습니다. 다른 출처는 계속 사용할 수 있습니다.
+- **not linked**: 같은 인물임을 확인할 서비스 간 명시적인 링크가 없습니다. 이름만으로 합치지 않습니다.
+- **separate view**: Spotify 전용 탐색에서 확인할 수 있습니다.
+- **partial**: 일부 조회만 성공했습니다. 확인된 크레딧은 표시하고 누락·실패를 알립니다.
+
+처음에는 빈 지도에서 시작합니다. 아래 다섯 이름은 검색 제안일 뿐 아티스트나 크레딧을 미리 표시하지 않습니다. 검색에서 출처가 확인된 **아티스트 결과**를 선택하면 그 한 명만 표시하고, 노드나 `Explore connections`를 클릭해야 크레딧을 조회·확장합니다. Spotify 전용 화면도 기본 프로필만 먼저 조회합니다(`/api/artist`). 현재 일반 곡 검색은 별도의 곡 상세 화면으로 연결하지 않습니다. Genius의 검색은 곡 검색 결과에서 아티스트를 추출합니다.
+
+한 번에 최대 4명을 추가하고 `Show 4 more`로 더 펼칩니다. 검색 결과를 새로 선택하면 다시 한 명에서 시작하며, `Start over`는 빈 시작 화면으로 돌아갑니다. 같은 이름의 다른 아티스트는 자동 합치지 않고, MusicBrainz의 외부 서비스 ID·아티스트 페이지 URL 등으로 확인된 경우만 통합합니다. 출처 간 동명 결과가 있으면 최대 두 건의 MusicBrainz 프로필로 연결을 검증합니다. 화면·비교 데이터가 부족하면 없는 관계를 생성하지 않습니다.
+
+기본 지도에는 최초 아티스트로부터의 거리·탐색 깊이 제한이 없습니다. 끝 노드를 누르면 그 인물 자체의 크레딧으로 새 가지를 만듭니다. 캐시에 있는 참여자를 다 확인해도 Genius·MusicBrainz의 다음 목록이 있으면 `page.canContinue`와 `hasMore`가 유지되고, 다음 확장 요청에서 추가 묶음을 조회합니다. 새 인물이 없는 묶음도 한 번의 동작에서 최대 8페이지까지만 확인해 요청 폭주를 방지합니다. 실제 소스가 종료되거나 오류가 발생하면 없는 관계를 생성하지 않습니다. Spotify 전용 화면의 20명 표시 제한과 Apple·Spotify의 조회 범위는 별도로 유지됩니다.
+
+크레딧은 `/api/connections?...&stream=1`의 NDJSON 응답으로 확인되는 즉시 표시합니다. Genius는 곡 상세가 도착할 때마다, MusicBrainz는 녹음 크레딧마다 보완하고, Spotify는 참여자 이미지 조회가 끝나기 전에 트랙 크레딧을 먼저 제공합니다. 한 클릭에서 새 인물이 4명 나타나면 탐색 버튼을 다시 사용할 수 있고, 나머지 응답은 기존 프로필·크레딧만 보완합니다. 검색 결과 선택만으로 미리 크레딧을 조회하지 않습니다. 다른 노드 선택·뒤로 가기·초기화는 이전 응답의 화면 반영을 취소하지만, 이미 시작한 서버 조회는 제한된 표본을 마저 받아 2분 캐시를 채울 수 있습니다.
+
+## 개발 검증
+
+```sh
+npm run check
+npm test
+```
+
+자동 테스트의 Apple Music·Spotify·Genius 응답은 **모의 응답**입니다. 본인 계정 키로 성공했는지는 반드시 실제 검색 및 상태 화면에서 별도로 확인해야 합니다. HTTP 응답 및 확장 결과 캐시는 메모리에 2분 보관합니다. 인물 식별자 매핑과 검색에서 수집한 기본 프로필은 서버 프로세스가 실행되는 동안 메모리에 남고, 화면의 탐색 자료는 새로고침까지 남습니다. 디스크 DB에는 저장하지 않습니다. 토큰·오류 원문은 클라이언트나 로그로 출력하지 않습니다.

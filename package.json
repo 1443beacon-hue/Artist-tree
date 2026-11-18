@@ -1,0 +1,13 @@
+{
+  "name": "artistree-design-preview",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "engines": { "node": ">=22.12" },
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "node server.mjs",
+    "check": "node --check app.js && node --check artist-identity.js && node --check live-client.js && node --check graph-layout.js && node --check explorer-state.js && node --check server.mjs && node --check api/http.mjs && node --check api/providers.mjs && node --check api/service.mjs",
+    "test": "node --test"
+  }
+}

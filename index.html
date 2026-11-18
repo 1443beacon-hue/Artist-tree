@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f7f2">
+  <meta name="description" content="Explore artists, collaborations, and production credits through linked music sources.">
+  <title>Artistree — Follow the sound.</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%232b4fe8'/%3E%3Ccircle cx='13' cy='25' r='5' fill='white'/%3E%3Ccircle cx='28' cy='12' r='5' fill='white'/%3E%3Cpath d='M13 25L28 12' stroke='white' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" type="module"></script>
+</head>
+<body>
+  <header class="site-header">
+    <a href="./" class="brand" aria-label="Artistree home"><svg viewBox="0 0 30 30" fill="none" aria-hidden="true"><path d="M7 21 15 7l9 14H7Zm8-14v19M7 21l17-7" stroke="currentColor" stroke-width="1.5"/><circle cx="15" cy="7" r="3" fill="currentColor"/><circle cx="7" cy="21" r="3" fill="currentColor"/><circle cx="24" cy="21" r="3" fill="currentColor"/></svg>artistree<span class="brand-period">.</span></a>
+    <nav aria-label="Main navigation"><a href="#explore" class="nav-active">Discover<span></span></a><button id="about-button">The idea <span aria-hidden="true">↗</span></button></nav>
+    <div class="edition"><span class="status-dot"></span> AN EXPERIMENT IN MUSIC DISCOVERY <span class="preview-badge">PERSONAL BETA</span></div>
+  </header>
+
+  <main>
+    <section class="intro" aria-labelledby="page-title">
+      <div><p class="eyebrow"><span class="tiny-star">✳</span> LESS ALGORITHM. MORE EXPLORATION.</p><h1 id="page-title">Follow the sound<span class="blue">.</span><br><span class="muted-heading">Find your people.</span></h1></div>
+      <div class="intro-right"><p>Good music never exists alone.<br>Meet the artists, collaborators, and producers<br class="desktop-break"> behind your next favorite sound.</p><form class="search" role="search" autocomplete="off"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.3" stroke="currentColor" stroke-width="1.6"/><path d="m15 15 5 5" stroke="currentColor" stroke-width="1.6"/></svg><input id="artist-search" type="search" aria-label="Search demo artists" placeholder="Start with an artist…" aria-controls="search-results" aria-expanded="false"><kbd>/</kbd><div id="search-results" class="search-results" hidden></div></form></div>
+    </section>
+
+    <section id="explore" class="explorer" aria-label="Interactive artist explorer">
+      <div class="explorer-toolbar"><div class="map-label"><span class="status-dot"></span> THE EXPLORER <span class="toolbar-divider"></span><span id="node-count">00 artists</span></div><div class="explorer-navigation"><button id="back-button" class="text-button" disabled><span aria-hidden="true">←</span> Back</button><button id="reset-top" class="text-button">Start over <span aria-hidden="true">↺</span></button></div></div>
+      <div class="explorer-body">
+        <div class="map" id="map" aria-label="Artist graph. Scroll to zoom around the pointer. Drag the background to pan. Select an artist to add their connections while keeping the existing map.">
+          <div class="map-note"><span id="map-context">YOUR NEXT RABBIT HOLE</span><p id="map-description">Follow the artists.<br>Click a line for song credits.</p></div>
+          <div id="map-empty-state" class="map-empty-state"><span aria-hidden="true">✳</span><h2>One artist.<br>A world to explore.</h2><p>Search for someone you love.<br>The connections unfold when you click.</p></div>
+          <button id="motion-toggle" class="motion-toggle" aria-label="Pause graph animations" aria-pressed="true" title="Pause graph animations">Ⅱ</button>
+          <div id="graph-world" class="graph-world"><svg id="connections" class="connections" viewBox="0 0 1000 650" aria-label="Artist relationships"></svg><div id="nodes"></div></div>
+          <div class="map-bottom"><div class="legend"><span><i class="legend-collab"></i> Collaboration</span><span><i class="legend-production"></i> Production</span></div><div class="map-controls"><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-value">100%</span><button id="zoom-in" aria-label="Zoom in">+</button><span class="control-divider"></span><button id="fit-view" aria-label="Fit graph to view"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4" stroke="currentColor" stroke-width="1.4"/></svg></button></div></div>
+          <div class="map-tip">Scroll to zoom. Drag to move. Click lines for credits. <span>↗</span></div>
+          <div id="graph-announcement" class="sr-only" role="status" aria-live="polite"></div>
+        </div>
+        <aside class="artist-panel" id="artist-panel" aria-label="Selected artist"></aside>
+      </div>
+    </section>
+
+    <section class="starting-points" aria-label="Suggested artist searches"><div class="starting-label">A PLACE TO START <span>↗</span></div><div id="seed-artists" class="seed-artists"></div><span class="curated-note">Pick a name. Start with one.</span></section>
+    <footer><span>Music is a network. Get a little lost.</span><span id="api-status" role="status">CHECKING MUSIC SOURCES…</span><a href="#" id="sources-button">API status & source credits ↗</a></footer>
+  </main>
+
+  <dialog id="info-dialog"><button class="dialog-close" aria-label="Close dialog">×</button><div id="dialog-content"></div></dialog>
+</body>
+</html>
