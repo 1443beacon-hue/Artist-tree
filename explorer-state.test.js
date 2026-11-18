@@ -25,6 +25,41 @@ test('overview starts with exactly the five seeds', () => {
   assert.equal(explorer.canGoBack, false);
 });
 
+test('the trail follows real explored branches rather than inventing sibling connections', () => {
+  const explorer = createExplorer({ artists, edges, seeds: [], initialArtist: null });
+  explorer.start('bladee');
+  explorer.select('bladee');
+  assert.deepEqual(explorer.trail, ['bladee']);
+  explorer.select('lean');
+  assert.deepEqual(explorer.trail, ['bladee', 'lean']);
+  explorer.select('tohji');
+  assert.deepEqual(explorer.trail, ['bladee', 'tohji'], 'a sibling jump uses its actual discovery path');
+  explorer.select('mechatok');
+  assert.deepEqual(explorer.trail, ['bladee', 'tohji', 'mechatok']);
+  const before = [...explorer.visibleIds];
+  assert.equal(explorer.isExpanded('bladee'), true);
+  explorer.focus('bladee');
+  assert.deepEqual(explorer.trail, ['bladee']);
+  assert.deepEqual([...explorer.visibleIds], before, 'breadcrumb navigation never reveals neighbors');
+  explorer.back();
+  assert.deepEqual(explorer.trail, ['bladee', 'tohji', 'mechatok']);
+  assert.equal(explorer.selected, 'mechatok');
+});
+
+test('trail snapshots are independent and restore without claiming a running lookup', () => {
+  const explorer = createExplorer({ artists, edges, seeds: [], initialArtist: null });
+  explorer.start('bladee'); explorer.select('bladee'); explorer.select('lean');
+  const snapshot = explorer.snapshot(), copy = explorer.trail;
+  copy.push('not-an-artist');
+  assert.deepEqual(explorer.trail, ['bladee', 'lean']);
+  explorer.reset();
+  assert.equal(explorer.trail.length, 0);
+  assert.equal(explorer.restore(snapshot), true);
+  assert.deepEqual(explorer.trail, ['bladee', 'lean']);
+  assert.equal(explorer.canGoBack, false);
+  assert.deepEqual([...explorer.visibleIds], snapshot.visible);
+});
+
 test('the application can start empty, then a search chooses exactly one artist without expanding', () => {
   const explorer = createExplorer({ artists, edges, seeds: [], initialArtist: null });
   assert.equal(explorer.selected, null);

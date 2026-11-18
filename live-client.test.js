@@ -266,3 +266,16 @@ test('a distant end node places its new branch nearby, outside the original canv
   assert.equal(artists[root.id].x, 500, 'existing stored positions are not rewritten');
   assert.equal(artists[root.id].y, 300);
 });
+
+test('hidden profiles from old searches never push a newly fetched person farther away', () => {
+  const root = { ...profile('genius:1', 'Root', { genius: '1' }), x: 500, y: 300 };
+  const guest = profile('genius:2', 'Guest', { genius: '2' });
+  const payload = { artist: root, artists: [root, guest], edges: [] };
+  const positions = new Map([[root.id, { x: 500, y: 300 }]]);
+  const clean = { [root.id]: { ...root } }, cached = { [root.id]: { ...root } };
+  for (let i = 0; i < 200; i++) cached[`hidden${i}`] = { name: `Hidden ${i}`, x: 500 + Math.cos(i) * (150 + i * 5), y: 300 + Math.sin(i) * (150 + i * 5) };
+  mergeLiveGraph(clean, [], payload, root.id, { positions });
+  mergeLiveGraph(cached, [], payload, root.id, { positions });
+  assert.equal(clean[guest.id].x, cached[guest.id].x);
+  assert.equal(clean[guest.id].y, cached[guest.id].y);
+});

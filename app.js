@@ -1,7 +1,12 @@
 import { createExplorer, layoutArtists, zoomAroundPoint, MIN_ZOOM, MAX_ZOOM } from './explorer-state.js';
-import { SOURCE_NAMES, EXPANSION_LIMIT, fetchApiStatus, searchLiveArtists, fetchArtist, fetchConnectionPages, requestId, mergeLiveGraph } from './live-client.js';
+import { SOURCE_NAMES, EXPANSION_LIMIT, fetchApiStatus, fetchStartingPoints, searchLiveArtists, fetchArtist, fetchConnectionPages, requestId, mergeLiveGraph } from './live-client.js';
 import { sameArtist } from './artist-identity.js';
-import { separateArtists, bundleConnections } from './graph-layout.js';
+import { separateArtists, layoutNearbyArtists, bundleConnections } from './graph-layout.js';
+import { createElasticGraph, graphDistances, pointerToGraph, cameraToCenter } from './graph-interaction.js';
+import { createIntroNetwork } from './intro-network.js';
+import { lookupFeedback, discoveryTargets, createDiscoveryFeedback } from './lookup-feedback.js';
+import { createMapStore, validateSavedMap } from './saved-maps.js';
+import { createSavedMapsUI } from './saved-maps-ui.js';
 
 const suggestions = ['Tohji', 'Bladee', 'Yung Lean', 'Lucy Bedroque', 'prettifun'];
 const artists = Object.create(null);
@@ -30,12 +35,24 @@ let pan = { x: 0, y: 0 };
 const $ = selector => document.querySelector(selector);
 const world = $('#graph-world');
 const svgNS = 'http://www.w3.org/2000/svg';
+const introNetwork = createIntroNetwork($('#intro-network'));
 const matchedEdges = id => edges.filter(edge => edge.a === id || edge.b === id);
 const opposite = (edge, id) => edge.a === id ? edge.b : edge.a;
 const edgeElements = new Map();
+const discoveryFeedback = createDiscoveryFeedback();
 const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
 let motionPaused = false;
 let hoveredArtist = null;
+const elastic = createElasticGraph();
+let targetLayout = new Map();
+let graphViewport = { width: 1000, height: 650 };
+let motionFrame = null, lastMotionTime = null;
+let cameraFrame = null, cameraTarget = null;
+let cameraRevision = 0, focusIntent = null;
+let nodeDrag = null, suppressedClick = null;
+let drag = null;
+let savedMapsUI, pathPreview = null, trailSignature = '';
+const elasticEnabled = () => !spotifyView && !motionPaused && !motionQuery.matches && !document.hidden;
 
 function syncMotion() {
   const enabled = !motionPaused && !motionQuery.matches;
@@ -50,6 +67,9 @@ function syncMotion() {
   toggle.setAttribute('aria-label', enabled ? 'Pause graph animations' : 'Resume graph animations');
   toggle.disabled = motionQuery.matches;
   toggle.title = motionQuery.matches ? 'Reduced motion is enabled in your system settings' : toggle.getAttribute('aria-label');
+  if (paused) { stopElasticMotion(); stopCameraAnimation(); }
+  if (paused) discoveryFeedback.clear();
+  introNetwork.setPaused(paused);
 }
 
 $('#motion-toggle').addEventListener('click', () => {
@@ -69,6 +89,87 @@ function highlightConnections(id) {
   edgeElements.forEach(({ link, edge }) => {
     link.classList.toggle('is-highlighted', edge.a === id || edge.b === id);
   });
+  applyPathPreview();
+}
+
+function applyPathPreview() {
+  const ids = new Set(pathPreview || []), pairs = new Set();
+  for (let i = 1; i < (pathPreview?.length || 0); i++) pairs.add([pathPreview[i - 1], pathPreview[i]].sort().join('|'));
+  world.classList.toggle('has-path-preview', ids.size > 0);
+  for (const node of $('#nodes').children) node.classList.toggle('is-path-node', ids.has(node.dataset.artist));
+  edgeElements.forEach(({ link }, key) => link.classList.toggle('is-path', pairs.has(key)));
+}
+function previewPath(path = null) { pathPreview = path; applyPathPreview(); }
+function renderTrail() {
+  const trail = explorer.trail, host = $('#exploration-trail');
+  $('#exploration-path').hidden = trail.length === 0;
+  const signature = JSON.stringify(trail.map(id => [id, artists[id]?.name]));
+  if (signature !== trailSignature) {
+    trailSignature = signature; host.replaceChildren(); pathPreview = null;
+    trail.forEach((id, index) => {
+      const item = document.createElement('li'), button = document.createElement('button');
+      if (index) {
+        const arrow = document.createElement('span'); arrow.className = 'path-arrow'; arrow.textContent = '→';
+        arrow.setAttribute('aria-hidden', 'true'); item.append(arrow);
+      }
+      button.type = 'button'; button.dataset.trailId = id; button.dataset.trailIndex = String(index);
+      button.textContent = artists[id].name;
+      button.title = `Move to ${artists[id].name} without expanding`;
+      button.setAttribute('aria-label', `Move to ${artists[id].name} without expanding`);
+      if (index === trail.length - 1) button.setAttribute('aria-current', 'location');
+      item.append(button); host.append(item);
+    });
+    host.scrollLeft = host.scrollWidth - host.clientWidth;
+  }
+  applyPathPreview();
+}
+function focusTrailArtist(id) {
+  if (!explorer.visibleIds.has(id)) return;
+  previewPath();
+  if (explorer.selected !== id) { cancelLiveLookup(); profileLookup?.abort(); lookupVersion++; }
+  selectedConnection = null; stopCameraAnimation();
+  focusIntent = { id, revision: cameraRevision };
+  explorer.focus(id); render();
+  [...$('#nodes').children].find(node => node.dataset.artist === id)?.focus({ preventScroll: true });
+  $('#graph-announcement').textContent = `Moved to ${artists[id].name}. No new connections were requested.`;
+}
+const pathHost = $('#exploration-path');
+pathHost.addEventListener('click', event => {
+  const button = event.target.closest('[data-trail-id]');
+  if (button) focusTrailArtist(button.dataset.trailId);
+});
+pathHost.addEventListener('pointerenter', () => previewPath(explorer.trail));
+for (const type of ['pointerover', 'focusin']) pathHost.addEventListener(type, event => {
+  const button = event.target.closest('[data-trail-index]');
+  if (button) previewPath(explorer.trail.slice(0, Number(button.dataset.trailIndex) + 1));
+});
+pathHost.addEventListener('pointerleave', () => {
+  if (!pathHost.contains(document.activeElement)) previewPath();
+});
+pathHost.addEventListener('focusout', event => { if (!pathHost.contains(event.relatedTarget)) previewPath(); });
+
+function snapshotMap() {
+  return { graph: { artists: [...explorer.visibleIds].map(id => ({ ...artists[id], x: layout.get(id)?.x ?? artists[id].x, y: layout.get(id)?.y ?? artists[id].y })),
+    edges: explorer.visibleEdges, explorer: explorer.snapshot() },
+    camera: { zoom, pan: { ...pan }, width: graphViewport.width, height: graphViewport.height } };
+}
+function openSavedMap(value) {
+  const map = validateSavedMap(value, spotifyView ? 'spotify' : 'main');
+  if (!map) throw new Error('Invalid saved map');
+  cancelLiveLookup(); profileLookup?.abort(); lookupVersion++;
+  clearGraphInteraction(); previewPath(); selectedConnection = null; hoveredArtist = null;
+  liveStates.clear();
+  // Keep hidden startup identities (especially the Spotify URL root) available
+  // for Start over, but replace the saved visible relationships exactly.
+  for (const artist of map.graph.artists) artists[artist.id] = artist;
+  edges.splice(0, edges.length, ...map.graph.edges);
+  explorer.restore(map.graph.explorer);
+  layoutPositions = new Map(map.graph.artists.map(artist => [artist.id, { x: artist.x, y: artist.y }]));
+  render(); stopElasticMotion();
+  zoom = map.camera.zoom;
+  pan = { x: map.camera.pan.x * graphViewport.width / map.camera.width, y: map.camera.pan.y * graphViewport.height / map.camera.height };
+  updateCamera();
+  [...$('#nodes').children].find(node => node.dataset.artist === explorer.selected)?.focus({ preventScroll: true });
 }
 
 function portrait(artist, className, small = false) {
@@ -94,17 +195,66 @@ function portrait(artist, className, small = false) {
   return el;
 }
 
+function renderLookupFeedback() {
+  for (const node of $('#nodes').children) {
+    const id = node.dataset.artist, state = liveStates.get(id) || {};
+    const active = id === explorer.selected && state.version === lookupVersion && activeLookup && !activeLookup.signal.aborted;
+    const feedback = lookupFeedback(id === explorer.selected && explorer.isExpanded(id) ? state : {}, { active: Boolean(active) });
+    let ring = node.querySelector('.node-lookup-ring'), label = node.querySelector('.node-lookup-status');
+    if (!ring) {
+      ring = document.createElementNS(svgNS, 'svg');
+      ring.setAttribute('class', 'node-lookup-ring'); ring.setAttribute('viewBox', '0 0 100 100');
+      ring.setAttribute('aria-hidden', 'true'); ring.setAttribute('focusable', 'false');
+      for (const className of ['lookup-track', 'lookup-arc']) {
+        const circle = document.createElementNS(svgNS, 'circle');
+        for (const [key, value] of Object.entries({ cx: 50, cy: 50, r: 47, pathLength: 100, class: className })) circle.setAttribute(key, String(value));
+        ring.append(circle);
+      }
+      node.querySelector('.node-photo').append(ring);
+      label = document.createElement('span'); label.className = 'node-lookup-status';
+      label.setAttribute('aria-hidden', 'true'); node.append(label);
+    }
+    node.dataset.lookupPhase = feedback.phase;
+    for (const phase of ['loading', 'background', 'error']) node.classList.toggle(`is-lookup-${phase}`, feedback.phase === phase);
+    ring.style.display = feedback.phase === 'idle' ? 'none' : '';
+    label.hidden = feedback.phase === 'idle'; label.textContent = feedback.label;
+    node.setAttribute('aria-busy', String(feedback.busy));
+    node.setAttribute('aria-label', `Explore ${artists[id].name}${feedback.label ? `. ${feedback.label}` : ''}`);
+  }
+}
+
+function pulseDiscoveries(ids, anchorId) {
+  const enabled = !motionPaused && !motionQuery.matches && !document.hidden;
+  for (const { key, reverse } of discoveryTargets(bundleConnections(explorer.visibleEdges), ids, anchorId)) {
+    discoveryFeedback.pulse(edgeElements.get(key)?.discovery, { reverse, enabled });
+  }
+}
+
+function cancelLiveLookup(clearDiscovery = true) {
+  activeLookup?.abort(); activeLookup = null;
+  for (const [id, state] of liveStates) {
+    if (state.loading || state.pending) liveStates.set(id, { ...state, loading: false, pending: false });
+  }
+  if (clearDiscovery) discoveryFeedback.clear();
+  renderLookupFeedback();
+}
+
 function selectArtist(id) {
   if (!Object.hasOwn(artists, id)) return;
-  if (explorer.selected === id && liveStates.get(id)?.loading) return;
+  previewPath();
+  stopCameraAnimation();
+  focusIntent = { id, revision: cameraRevision };
+  if (explorer.selected === id && liveStates.get(id)?.loading) { centerSelectedArtist(); return; }
   const previouslyVisible = explorer.visibleIds;
   const limit = spotifyView ? Math.min(EXPANSION_LIMIT, Math.max(0, 20 - previouslyVisible.size)) : EXPANSION_LIMIT;
   selectedConnection = null;
-  if (explorer.selected !== id) { activeLookup?.abort(); lookupVersion++; }
+  if (explorer.selected !== id) { cancelLiveLookup(); lookupVersion++; }
   const changed = explorer.select(id, { maxNew: limit });
   render();
   $('#graph-announcement').textContent = `${artists[id].name} selected. Connected people have been added; previously visible artists stay on the map. ${explorer.visibleIds.size} artists visible.`;
-  const added = [...explorer.visibleIds].filter(key => !previouslyVisible.has(key)).length;
+  const revealed = [...explorer.visibleIds].filter(key => !previouslyVisible.has(key));
+  pulseDiscoveries(revealed, id);
+  const added = revealed.length;
   const live = liveStates.get(id) || {};
   if (added < limit && !live.loading && (!live.loaded || live.hasMore || live.error)) {
     void loadLiveConnections(id, { offset: live.loaded ? live.nextOffset || 0 : 0, maxNew: limit - added, remember: !changed });
@@ -113,7 +263,9 @@ function selectArtist(id) {
 
 function startWithArtist(id) {
   if (!Object.hasOwn(artists, id)) return;
-  activeLookup?.abort(); profileLookup?.abort(); lookupVersion++;
+  cancelLiveLookup(); profileLookup?.abort(); lookupVersion++;
+  clearGraphInteraction();
+  previewPath();
   selectedConnection = null; hoveredArtist = null; layoutPositions.clear();
   artists[id].x = 500; artists[id].y = 300; artists[id].size = 164;
   explorer.start(id);
@@ -154,9 +306,10 @@ async function loadLiveConnections(id, { offset = 0, maxNew = EXPANSION_LIMIT, r
   if (!apiId) {
     liveStates.set(id, { error: 'Select a source-backed search result to verify this artist’s identity.', needsSearch: true });
     if (explorer.selected === id) renderPanel();
+    renderLookupFeedback();
     return;
   }
-  activeLookup?.abort();
+  cancelLiveLookup(false);
   const controller = new AbortController();
   activeLookup = controller;
   const version = ++lookupVersion;
@@ -164,14 +317,17 @@ async function loadLiveConnections(id, { offset = 0, maxNew = EXPANSION_LIMIT, r
   let remaining = maxNew;
   let remembered = false;
   const isCurrent = () => version === lookupVersion && explorer.selected === currentId && !controller.signal.aborted;
-  liveStates.set(id, { ...previous, loading: true, error: '', version });
+  liveStates.set(id, { ...previous, loading: true, pending: false, error: '', version });
   renderPanel();
+  renderLookupFeedback();
+  $('#graph-announcement').textContent = `Looking up credits for ${artist.name}. Verified connections will appear as they arrive.`;
   try {
     const result = await fetchConnectionPages(apiId, artist.name, offset, controller.signal, page => {
       if (!isCurrent()) return false;
       const merged = mergeLiveGraph(artists, edges, page, currentId, { positions: layout });
       explorer.remapAliases(merged.aliases);
-      if (merged.aliases.size) { edgeElements.forEach(record => record.link.remove()); edgeElements.clear(); }
+      if (focusIntent?.id === currentId) focusIntent.id = merged.artistId;
+      if (merged.aliases.size) { discoveryFeedback.clear(); edgeElements.forEach(record => record.link.remove()); edgeElements.clear(); }
       const visible = explorer.visibleIds;
       let room = spotifyView ? Math.min(remaining, Math.max(0, 20 - visible.size)) : remaining;
       const revealed = merged.addedIds.filter(key => !visible.has(key) && room-- > 0);
@@ -185,11 +341,12 @@ async function loadLiveConnections(id, { offset = 0, maxNew = EXPANSION_LIMIT, r
         nextOffset: page.page.nextOffset, sources: page.sources, identityWarnings: page.identityWarnings, note: page.note,
         error: success || page.pending ? '' : 'No verified live source was available. Check API status and source identity links, then retry.' });
       render();
+      pulseDiscoveries(revealed, currentId);
       return remaining > 0;
     });
     if (!isCurrent()) return;
     const success = !liveStates.get(currentId).error;
-    liveStates.set(currentId, { ...liveStates.get(currentId), loading: false });
+    liveStates.set(currentId, { ...liveStates.get(currentId), loading: false, pending: false });
     render();
     $('#graph-announcement').textContent = success ? `Live lookup finished for ${artist.name}. ${result.page.total} connected artists in this sample.` : 'No verified live source was available for this artist. Open API status for setup details.';
     void refreshApiStatus();
@@ -197,9 +354,13 @@ async function loadLiveConnections(id, { offset = 0, maxNew = EXPANSION_LIMIT, r
     if (!isCurrent()) return;
     liveStates.set(currentId, { ...liveStates.get(currentId), loading: false, pending: false, error: error.message });
     renderPanel();
+    renderLookupFeedback();
+    $('#graph-announcement').textContent = `Could not finish the lookup for ${artist.name}. ${error.message}`;
   } finally {
     const state = liveStates.get(currentId);
-    if (state?.version === version && state.loading) liveStates.set(currentId, { ...state, loading: false });
+    if (state?.version === version && (state.loading || state.pending)) liveStates.set(currentId, { ...state, loading: false, pending: false });
+    if (activeLookup === controller) activeLookup = null;
+    renderLookupFeedback();
   }
 }
 
@@ -227,12 +388,18 @@ function render() {
       const photo = document.createElement('span');
       photo.className = 'node-photo';
       photo.append(portrait(artist, ''));
+      const shade = document.createElement('span');
+      shade.className = 'node-shade'; shade.setAttribute('aria-hidden', 'true');
+      photo.append(shade);
       button.dataset.image = artist.image || '';
       const name = document.createElement('span'); name.className = 'node-name'; name.textContent = artist.name;
       const role = document.createElement('span'); role.className = 'node-role';
       orbit.append(photo, name, role);
       button.append(orbit);
       button.addEventListener('click', event => {
+        if (suppressedClick?.id === id && event.detail > 0 && performance.now() < suppressedClick.until) {
+          event.preventDefault(); event.stopPropagation(); suppressedClick = null; return;
+        }
         selectArtist(id);
         if (event.detail === 0) button.focus({ preventScroll: true });
       });
@@ -240,6 +407,18 @@ function render() {
       button.addEventListener('pointerleave', () => highlightConnections(null));
       button.addEventListener('focus', () => highlightConnections(id));
       button.addEventListener('blur', () => highlightConnections(null));
+      button.addEventListener('keydown', event => {
+        if (!event.shiftKey || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+        event.preventDefault();
+        manualCameraIntent();
+        const current = targetLayout.get(id);
+        if (!current) return;
+        const step = 24 / zoom;
+        layoutPositions.set(id, { x: current.x + (event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0) / graphViewport.width * 1000,
+          y: current.y + (event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0) / graphViewport.height * 650 });
+        updateGraphLayout(id);
+        $('#graph-announcement').textContent = `${artist.name} moved. Use Shift and arrow keys to reposition, or Enter to explore.`;
+      });
       nodeHost.append(button);
     }
     button.classList.toggle('selected', id === selected);
@@ -269,8 +448,12 @@ function render() {
   }
   existing.forEach(node => node.remove());
   updateGraphLayout();
+  updateFocusDepth();
   highlightConnections(visibleIds.has(hoveredArtist) ? hoveredArtist : null);
   renderPanel();
+  renderLookupFeedback();
+  renderTrail();
+  savedMapsUI?.refresh();
   $('#node-count').textContent = `${String(visibleIds.size).padStart(2, '0')} artists`;
   $('#map-empty-state').hidden = visibleIds.size > 0;
   $('#map-description').textContent = !selected ? 'Search for an artist to begin.' : explorer.isExpanded(selected) ? 'Click artists to explore. Click lines for credits.' : 'One artist. Click their portrait to unfold the connections.';
@@ -281,8 +464,10 @@ function render() {
   });
 }
 
-function updateGraphLayout() {
+function updateGraphLayout(positionAnchor = null) {
   const width = world.clientWidth || 1000, height = world.clientHeight || 650;
+  graphViewport = { width, height };
+  const previousIds = new Set(targetLayout.keys());
   const photoSizes = new Map(), captionWidths = new Map();
   if (typeof getComputedStyle === 'function') {
     document.querySelectorAll('.node').forEach(node => {
@@ -292,15 +477,97 @@ function updateGraphLayout() {
       if (caption) captionWidths.set(node.dataset.artist, caption + 24);
     });
   }
-  layout = separateArtists(layoutArtists(artists, explorer.visibleIds), {
-    width, height, previous: layoutPositions, compact: window.innerWidth <= 1100, photoSizes, captionWidths
+  const preferred = layoutArtists(artists, explorer.visibleIds);
+  const ordered = preferred.has(positionAnchor)
+    ? new Map([[positionAnchor, preferred.get(positionAnchor)], ...[...preferred].filter(([id]) => id !== positionAnchor)])
+    : preferred;
+  const arrange = spotifyView ? separateArtists : layoutNearbyArtists;
+  targetLayout = arrange(ordered, {
+    width, height, previous: layoutPositions, compact: window.innerWidth <= 1100, photoSizes, captionWidths,
+    edges: explorer.visibleEdges, anchorId: explorer.selected, pinnedId: positionAnchor || explorer.selected
   });
-  layoutPositions = new Map([...layout].map(([id, node]) => [id, { x: node.x, y: node.y }]));
-  document.querySelectorAll('.node').forEach(node => {
-    const position = layout.get(node.dataset.artist);
-    if (position) { node.style.left = `${position.x / 10}%`; node.style.top = `${position.y / 6.5}%`; }
-  });
+  layoutPositions = new Map([...targetLayout].map(([id, node]) => [id, { x: node.x, y: node.y }]));
+  const entering = [...targetLayout.keys()].filter(id => !previousIds.has(id));
+  const positions = new Map([...targetLayout].map(([id, node]) => [id, { x: node.x / 1000 * width, y: node.y / 650 * height }]));
+  const origins = new Map(), colliders = new Map();
+  const anchor = positions.get(explorer.selected);
+  for (const [id, node] of targetLayout) {
+    if (!spotifyView) colliders.set(id, (photoSizes.get(id) || node.size || 96) / 2 + 9);
+    if (anchor && entering.includes(id) && id !== explorer.selected) {
+      const point = positions.get(id);
+      origins.set(id, { x: anchor.x + (point.x - anchor.x) * .78, y: anchor.y + (point.y - anchor.y) * .78 });
+    }
+  }
+  elastic.setLayout(positions, explorer.visibleEdges, { animate: elasticEnabled(), entering, origins, colliders });
+  drawMotionFrame();
   renderEdges();
+  if (elasticEnabled()) startElasticMotion();
+  centerSelectedArtist();
+}
+
+function updateFocusDepth() {
+  const distances = graphDistances(explorer.visibleIds, explorer.visibleEdges, explorer.selected);
+  document.querySelectorAll('#nodes .node').forEach(node => {
+    const distance = distances.get(node.dataset.artist);
+    node.dataset.distance = Number.isFinite(distance) ? String(distance) : 'unconnected';
+    node.classList.toggle('is-distant', Boolean(explorer.selected && distance >= 2));
+    node.classList.toggle('is-remote', Boolean(explorer.selected && distance > 2));
+    node.title = `${artists[node.dataset.artist].name} · Click to center and explore · Drag to move · Shift + arrow keys to reposition`;
+  });
+  edgeElements.forEach(({ link, edge }) => {
+    link.classList.toggle('is-distant', (distances.get(edge.a) ?? Infinity) >= 2 || (distances.get(edge.b) ?? Infinity) >= 2);
+  });
+}
+
+function drawMotionFrame() {
+  const positions = elastic.positions;
+  layout = new Map([...targetLayout].map(([id, node]) => {
+    const point = positions.get(id);
+    if (!point) return [id, node];
+    return [id, { ...node, x: point.x / graphViewport.width * 1000, y: point.y / graphViewport.height * 650,
+      footprint: { ...node.footprint, x: point.x, y: point.y } }];
+  }));
+  document.querySelectorAll('#nodes .node').forEach(node => {
+    const point = layout.get(node.dataset.artist);
+    if (point) { node.style.left = `${point.x / 10}%`; node.style.top = `${point.y / 6.5}%`; }
+  });
+  edgeElements.forEach(record => {
+    const a = layout.get(record.edge.a), b = layout.get(record.edge.b);
+    if (!a || !b) return;
+    const curve = `M ${a.x} ${a.y} Q ${(a.x+b.x)/2} ${(a.y+b.y)/2 - (record.index % 2 ? 20 : -15)} ${b.x} ${b.y}`;
+    record.path.setAttribute('d', curve); record.hit.setAttribute('d', curve);
+    record.trace.setAttribute('d', curve); record.travel.setAttribute('path', curve);
+    record.discovery.setAttribute('d', curve);
+  });
+}
+
+function startElasticMotion() {
+  if (motionFrame !== null || !elasticEnabled() || typeof requestAnimationFrame !== 'function') return;
+  lastMotionTime = null;
+  const frame = time => {
+    motionFrame = null;
+    if (!elasticEnabled()) { stopElasticMotion(); return; }
+    const moving = elastic.step(lastMotionTime === null ? 16 : time - lastMotionTime);
+    lastMotionTime = time;
+    drawMotionFrame();
+    if (moving) motionFrame = requestAnimationFrame(frame);
+  };
+  motionFrame = requestAnimationFrame(frame);
+}
+
+function stopElasticMotion() {
+  if (motionFrame !== null) cancelAnimationFrame(motionFrame);
+  motionFrame = null; lastMotionTime = null;
+  elastic.settle();
+  if (targetLayout.size) drawMotionFrame();
+}
+
+function clearGraphInteraction() {
+  finishNodeDrag(true);
+  stopElasticMotion(); stopCameraAnimation();
+  elastic.clear(); targetLayout.clear();
+  discoveryFeedback.clear();
+  focusIntent = null; suppressedClick = null;
 }
 
 function showConnection(key) {
@@ -323,10 +590,12 @@ function renderEdges() {
     const description = `${a.name} and ${b.name}: ${edge.types.join(', ')}. Open song credits in the details panel.`;
     if (record) {
       record.edge = edge;
+      record.index = index;
       record.path.setAttribute('class', `edge ${edge.type} ${active ? 'active' : ''}`);
       record.path.setAttribute('d', curve);
       record.hit.setAttribute('d', curve);
       record.trace.setAttribute('d', curve);
+      record.discovery.setAttribute('d', curve);
       record.travel.setAttribute('path', curve);
       record.link.classList.toggle('is-active', active);
       record.link.classList.toggle('is-selected', key === selectedConnection);
@@ -354,6 +623,10 @@ function renderEdges() {
     trace.setAttribute('class', 'connection-trace');
     trace.setAttribute('aria-hidden', 'true');
     link.append(trace);
+    const discovery = document.createElementNS(svgNS, 'path');
+    discovery.setAttribute('d', curve); discovery.setAttribute('pathLength', '1');
+    discovery.setAttribute('class', 'connection-discovery'); discovery.setAttribute('aria-hidden', 'true');
+    link.append(discovery);
     const flow = document.createElementNS(svgNS, 'g');
     flow.setAttribute('class', 'connection-flow');
     flow.setAttribute('aria-hidden', 'true');
@@ -370,15 +643,17 @@ function renderEdges() {
     travel.setAttribute('repeatCount', 'indefinite');
     flow.append(travel);
     link.append(flow);
-    edgeElements.set(key, { link, path, hit, trace, travel, edge });
+    edgeElements.set(key, { link, path, hit, trace, discovery, travel, edge, index });
   });
   edgeElements.forEach((record, key) => {
     if (!current.has(key)) {
+      discoveryFeedback.forget(record.discovery);
       record.link.remove();
       edgeElements.delete(key);
     }
   });
   syncMotion();
+  applyPathPreview();
 }
 
 function renderPanel() {
@@ -495,12 +770,50 @@ function spotifyMark() {
   return mark;
 }
 
-suggestions.forEach(name => {
-  const button = document.createElement('button'); button.className = 'seed-button'; button.dataset.query = name;
-  const initials = document.createElement('span'); initials.className = 'seed-initial'; initials.textContent = name.split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase();
-  button.append(initials, document.createTextNode(name));
-  button.addEventListener('click', () => { input.value = name; input.dispatchEvent(new Event('input')); input.focus(); }); $('#seed-artists').append(button);
-});
+let startingRefreshTimer = null;
+function renderStartingPoints(result) {
+  if (startingRefreshTimer !== null) { clearTimeout(startingRefreshTimer); startingRefreshTimer = null; }
+  const host = $('#seed-artists'); host.replaceChildren(); host.removeAttribute('aria-busy');
+  const ranked = result.chartAvailable && result.source?.kind === 'daily_artist_chart_snapshot';
+  for (const raw of result.artists.slice(0, 5)) {
+    const artist = { ...raw, initials: raw.name.split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase() };
+    const button = document.createElement('button'); button.className = 'seed-button'; button.dataset.query = artist.name;
+    const photo = portrait(artist, 'seed-photo');
+    if (artist.image) { photo.width = 36; photo.height = 36; photo.loading = 'eager'; photo.fetchPriority = 'low'; }
+    if (ranked) {
+      button.dataset.rank = String(raw.rank);
+      button.title = `#${raw.rank} · Imported Genius daily artist chart · ${result.source.capturedAt}`;
+      button.setAttribute('aria-label', `${artist.name}, Genius daily artist chart position ${raw.rank}`);
+    }
+    button.append(photo, document.createTextNode(artist.name));
+    button.addEventListener('click', () => { input.value = artist.name; input.dispatchEvent(new Event('input')); input.focus(); });
+    host.append(button);
+  }
+  const chartDate = ranked ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(result.source.capturedAt)) : '';
+  $('#starting-status').textContent = ranked ? `Genius daily chart · ${chartDate} UTC · snapshot` : 'Suggested artists · Genius chart unavailable';
+  $('#starting-status').title = result.note;
+  $('#starting-source').title = ranked ? `Open Genius charts. Checked snapshot, not a live feed.${result.source.scope === 'recording_artists' ? ' Translation/editorial accounts excluded; original chart positions retained.' : ''}`
+    : 'Open Genius charts. Suggestions are not search rankings.';
+  if (ranked) {
+    startingRefreshTimer = setTimeout(() => { startingRefreshTimer = null; void loadStartingPoints(); },
+      Math.max(1, Date.parse(result.source.capturedAt) + 86_400_000 - Date.now()));
+    startingRefreshTimer?.unref?.();
+  }
+}
+
+async function loadStartingPoints() {
+  if (spotifyView) { $('.starting-points').hidden = true; return; }
+  const host = $('#seed-artists'); host.replaceChildren(); host.setAttribute('aria-busy', 'true');
+  for (let i = 0; i < 5; i++) {
+    const skeleton = document.createElement('span'); skeleton.className = 'seed-skeleton'; skeleton.setAttribute('aria-hidden', 'true');
+    host.append(skeleton);
+  }
+  try { renderStartingPoints(await fetchStartingPoints()); }
+  catch {
+    renderStartingPoints({ artists: suggestions.map(name => ({ name })), chartAvailable: false,
+      note: 'Starting artist portraits are unavailable. Showing suggested searches, not ranked artists.' });
+  }
+}
 
 function updateCamera() {
   world.style.transform = `translate(${pan.x}px,${pan.y}px) scale(${zoom})`;
@@ -508,33 +821,84 @@ function updateCamera() {
   $('#zoom-in').disabled = zoom >= MAX_ZOOM;
   $('#zoom-out').disabled = zoom <= MIN_ZOOM;
 }
+function stopCameraAnimation() {
+  if (cameraFrame !== null) cancelAnimationFrame(cameraFrame);
+  cameraFrame = null; cameraTarget = null;
+  world.classList.remove('camera-moving');
+}
+function manualCameraIntent() {
+  cameraRevision++;
+  focusIntent = null;
+  stopCameraAnimation();
+}
+function animateCamera(target) {
+  stopCameraAnimation();
+  if (!elasticEnabled() || typeof requestAnimationFrame !== 'function') {
+    zoom = target.zoom; pan = { ...target.pan }; updateCamera(); return;
+  }
+  cameraTarget = target;
+  const from = { zoom, pan: { ...pan } };
+  let began;
+  world.classList.add('camera-moving');
+  const frame = time => {
+    if (began === undefined) began = time;
+    const progress = Math.min(1, (time - began) / 420);
+    const ease = 1 - (1 - progress) ** 3;
+    zoom = from.zoom + (target.zoom - from.zoom) * ease;
+    pan = { x: from.pan.x + (target.pan.x - from.pan.x) * ease, y: from.pan.y + (target.pan.y - from.pan.y) * ease };
+    updateCamera();
+    if (progress < 1) cameraFrame = requestAnimationFrame(frame);
+    else { cameraFrame = null; cameraTarget = null; world.classList.remove('camera-moving'); }
+  };
+  cameraFrame = requestAnimationFrame(frame);
+}
+function centerSelectedArtist() {
+  if (!focusIntent || focusIntent.id !== explorer.selected || focusIntent.revision !== cameraRevision) return;
+  if (nodeDrag || drag || document.hidden) return;
+  const point = targetLayout.get(explorer.selected)?.footprint;
+  if (!point) return;
+  const node = [...$('#nodes').children].find(element => element.dataset.artist === explorer.selected);
+  const photo = node?.querySelector('.node-photo');
+  // Center the resting portrait, not the taller button including its caption.
+  // Ignore the decorative few-pixel float rather than chasing it every frame.
+  const photoOffset = photo?.offsetHeight && node.offsetHeight ? (photo.offsetHeight - node.offsetHeight) / 2 : 0;
+  const camera = cameraTarget || { zoom, pan };
+  const target = cameraToCenter(camera, { x: point.x, y: point.y + photoOffset }, graphViewport);
+  if (target !== camera) animateCamera(target);
+}
 function resetCamera() {
+  stopCameraAnimation();
   zoom = 1;
   pan = { x: 0, y: 0 };
   updateCamera();
 }
-function zoomTo(value, point) {
+function zoomTo(value, point, smooth = false) {
+  manualCameraIntent();
   const origin = { x: world.offsetWidth / 2, y: world.offsetHeight / 2 };
-  ({ zoom, pan } = zoomAroundPoint({ zoom, pan }, value, point || origin, origin));
-  updateCamera();
+  const target = zoomAroundPoint({ zoom, pan }, value, point || origin, origin);
+  if (smooth) animateCamera(target);
+  else { ({ zoom, pan } = target); updateCamera(); }
 }
-$('#zoom-in').addEventListener('click', () => zoomTo(zoom + .15));
-$('#zoom-out').addEventListener('click', () => zoomTo(zoom - .15));
+$('#zoom-in').addEventListener('click', () => zoomTo(zoom + .15, undefined, true));
+$('#zoom-out').addEventListener('click', () => zoomTo(zoom - .15, undefined, true));
 $('#fit-view').addEventListener('click', () => {
+  manualCameraIntent();
   if (!layout.size) { resetCamera(); return; }
   const boxes = [...layout.values()].map(node => node.footprint);
   const left = Math.min(...boxes.map(box => box.x - box.w / 2)), right = Math.max(...boxes.map(box => box.x + box.w / 2));
   const top = Math.min(...boxes.map(box => box.y - box.h / 2)), bottom = Math.max(...boxes.map(box => box.y + box.h / 2));
   const width = world.clientWidth || 1000, height = world.clientHeight || 650;
-  zoom = Math.max(MIN_ZOOM, Math.min(1, (width - 48) / (right - left), (height - 48) / (bottom - top)));
-  pan = { x: (width / 2 - (left + right) / 2) * zoom, y: (height / 2 - (top + bottom) / 2) * zoom };
-  updateCamera();
+  const fitZoom = Math.max(MIN_ZOOM, Math.min(1, (width - 48) / (right - left), (height - 48) / (bottom - top)));
+  animateCamera({ zoom: fitZoom, pan: { x: (width / 2 - (left + right) / 2) * fitZoom, y: (height / 2 - (top + bottom) / 2) * fitZoom } });
 });
-$('#reset-top').addEventListener('click', () => { activeLookup?.abort(); profileLookup?.abort(); lookupVersion++; selectedConnection = null; layoutPositions.clear(); explorer.reset(); resetCamera(); render(); });
+$('#reset-top').addEventListener('click', () => { cancelLiveLookup(); profileLookup?.abort(); lookupVersion++; clearGraphInteraction(); previewPath(); selectedConnection = null; layoutPositions.clear(); explorer.reset(); resetCamera(); render(); });
 $('#back-button').addEventListener('click', () => {
+  finishNodeDrag(true);
+  manualCameraIntent();
   if (!explorer.back()) return;
+  previewPath();
   selectedConnection = null;
-  activeLookup?.abort(); lookupVersion++;
+  cancelLiveLookup(); lookupVersion++;
   resetCamera();
   render();
   if (!explorer.canGoBack) $('#reset-top').focus({ preventScroll: true });
@@ -542,7 +906,7 @@ $('#back-button').addEventListener('click', () => {
 });
 let wheelEnd;
 $('#map').addEventListener('wheel', event => {
-  if (event.target.closest('.map-controls') || drag) return;
+  if (event.target.closest('.map-controls') || drag || nodeDrag) return;
   event.preventDefault();
   const bounds = $('#map').getBoundingClientRect();
   const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? bounds.height : 1);
@@ -555,18 +919,83 @@ $('#map').addEventListener('wheel', event => {
   clearTimeout(wheelEnd);
   wheelEnd = setTimeout(() => world.classList.remove('gesturing'), 140);
 }, { passive: false });
-let drag = null;
 $('#map').addEventListener('pointerdown', event => {
+  if (event.button !== 0 || event.isPrimary === false || drag || nodeDrag) return;
+  const button = event.target.closest('#nodes .node');
+  if (button) {
+    manualCameraIntent();
+    const id = button.dataset.artist;
+    const pointer = graphPointer(event), point = elastic.position(id);
+    if (!point) return;
+    nodeDrag = { id, pointerId: event.pointerId, button, startX: event.clientX, startY: event.clientY,
+      offsetX: point.x - pointer.x, offsetY: point.y - pointer.y, moved: false };
+    return;
+  }
   if (event.target.closest('button,a,.map-controls')) return;
-  drag = { x:event.clientX,y:event.clientY,px:pan.x,py:pan.y };
+  manualCameraIntent();
+  drag = { pointerId: event.pointerId, x:event.clientX,y:event.clientY,px:pan.x,py:pan.y };
   $('#map').setPointerCapture(event.pointerId); world.classList.add('dragging');
 });
 $('#map').addEventListener('pointermove', event => {
-  if (!drag) return;
+  if (nodeDrag && event.pointerId === nodeDrag.pointerId) {
+    const pointer = graphPointer(event);
+    if (!nodeDrag.moved && Math.hypot(event.clientX - nodeDrag.startX, event.clientY - nodeDrag.startY) < 6) return;
+    if (!nodeDrag.moved) {
+      nodeDrag.moved = true;
+      elastic.beginDrag(nodeDrag.id);
+      nodeDrag.button.classList.add('is-grabbed');
+      world.classList.add('node-dragging');
+      $('#map').setPointerCapture(event.pointerId);
+    }
+    event.preventDefault();
+    elastic.moveDrag({ x: pointer.x + nodeDrag.offsetX, y: pointer.y + nodeDrag.offsetY }, { elastic: elasticEnabled() });
+    drawMotionFrame();
+    startElasticMotion();
+    return;
+  }
+  if (!drag || drag.pointerId !== event.pointerId) return;
   pan = { x: drag.px + event.clientX - drag.x, y: drag.py + event.clientY - drag.y }; updateCamera();
 });
-function endDrag(){drag=null;world.classList.remove('dragging');}
-$('#map').addEventListener('pointerup',endDrag); $('#map').addEventListener('pointercancel',endDrag); $('#map').addEventListener('lostpointercapture',endDrag);
+function graphPointer(event) {
+  const bounds = $('#map').getBoundingClientRect();
+  return pointerToGraph({ x: event.clientX - bounds.left, y: event.clientY - bounds.top }, { zoom, pan }, graphViewport);
+}
+function finishNodeDrag(cancelled = false) {
+  if (!nodeDrag) return;
+  const current = nodeDrag;
+  nodeDrag = null;
+  current.button.classList.remove('is-grabbed');
+  world.classList.remove('node-dragging');
+  const point = elastic.endDrag();
+  if (current.moved) {
+    suppressedClick = { id: current.id, until: performance.now() + 400 };
+    if (point && !cancelled) {
+      layoutPositions.set(current.id, { x: point.x / graphViewport.width * 1000, y: point.y / graphViewport.height * 650 });
+      $('#graph-announcement').textContent = `${artists[current.id]?.name || 'Artist'} repositioned. Dragging does not load or expand credits.`;
+    }
+    updateGraphLayout(current.id);
+  }
+  if ($('#map').hasPointerCapture?.(current.pointerId)) $('#map').releasePointerCapture(current.pointerId);
+}
+function endDrag(event) {
+  if (nodeDrag && event.pointerId === nodeDrag.pointerId) finishNodeDrag(event.type !== 'pointerup');
+  if (drag?.pointerId === event.pointerId) { drag = null; world.classList.remove('dragging'); }
+}
+$('#map').addEventListener('pointerup', endDrag); $('#map').addEventListener('pointercancel', endDrag); $('#map').addEventListener('lostpointercapture', endDrag);
+document.addEventListener('pointerup', endDrag); document.addEventListener('pointercancel', endDrag);
+$('#map').addEventListener('click', event => {
+  if (!suppressedClick || event.detail === 0) return;
+  const button = event.target.closest('#nodes .node');
+  if (performance.now() < suppressedClick.until && (!button || button.dataset.artist === suppressedClick.id)) {
+    event.preventDefault(); event.stopImmediatePropagation(); suppressedClick = null;
+  }
+}, true);
+$('#map').addEventListener('dragstart', event => event.preventDefault());
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && nodeDrag?.moved) { event.preventDefault(); finishNodeDrag(true); }
+});
+window.addEventListener('blur', () => { finishNodeDrag(true); drag = null; world.classList.remove('dragging'); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) finishNodeDrag(true); });
 
 const input = $('#artist-search');
 let searchTimer, searchController, searchVersion = 0;
@@ -676,6 +1105,14 @@ $('#sources-button').addEventListener('click',event=>{
 });
 $('.dialog-close').addEventListener('click',()=>dialog.close());
 dialog.addEventListener('click',event=>{if(event.target===dialog){const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close();}});
+savedMapsUI = createSavedMapsUI({
+  button: $('#save-map-button'), popover: $('#map-save-popover'),
+  store: createMapStore({ getStorage: () => window.localStorage, scope: spotifyView ? 'spotify' : 'main' }),
+  canSave: () => explorer.visibleIds.size > 0,
+  defaultName: () => `${artists[explorer.trail[0]]?.name || 'My music'}’s connections`,
+  snapshot: snapshotMap, openMap: openSavedMap,
+  announce: message => { $('#graph-announcement').textContent = message; }
+});
 render();
 let resizeFrame;
 if (typeof ResizeObserver !== 'undefined') {
@@ -695,3 +1132,4 @@ if (spotifyView) {
   void loadStartingProfile(seeds[0]);
 }
 void refreshApiStatus();
+void loadStartingPoints();

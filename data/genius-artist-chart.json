@@ -1,0 +1,9 @@
+{
+  "period": "day",
+  "capturedAt": "2026-11-18T03:14:07.496Z",
+  "scope": "recording_artists",
+  "artistIds": ["1944322", "45", "130", "1177", "1599675"],
+  "positions": [3, 4, 6, 7, 8],
+  "sourceUrl": "https://genius.com/#top-songs",
+  "selection": "Charts > Artists > Today; translation/editorial accounts excluded. IDs verified against each chart-linked Genius artist page using the authenticated official API."
+}

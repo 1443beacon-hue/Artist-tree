@@ -11,6 +11,7 @@ async function get(path, signal) {
 }
 
 export const fetchApiStatus = () => get('/api/status');
+export const fetchStartingPoints = () => get('/api/starting-points');
 export const searchLiveArtists = (query, signal, scope = 'all') => get(`/api/search?${new URLSearchParams({ q: query, scope })}`, signal);
 export const fetchArtist = (id, signal) => get(`/api/artist?${new URLSearchParams({ id })}`, signal);
 export async function fetchConnections(id, name, offset, signal, onUpdate) {
@@ -91,16 +92,11 @@ export function requestId(artist) {
   return null;
 }
 
-function positionFor(artists, anchor, positions) {
-  const occupied = Object.entries(artists).map(([id, artist]) => positions.get(id) || artist);
-  for (let i = 0; i < 250; i++) {
-    const angle = i * 2.399963;
-    const radius = 155 + Math.floor(i / 12) * 70;
-    const x = anchor.x + Math.cos(angle) * radius;
-    const y = anchor.y + Math.sin(angle) * radius * .75;
-    if (occupied.every(other => Math.hypot(x - other.x, (y - other.y) * 1.3) > 135)) return { x, y };
-  }
-  return { x: anchor.x + 160, y: anchor.y + 160 };
+// Only a provisional direction: actual placement uses the visible graph and
+// measured CSS-pixel footprints. Cached/hidden profiles must not occupy space.
+function positionFor(anchor, index) {
+  const angle = index * 2.399963;
+  return { x: anchor.x + Math.cos(angle) * 155, y: anchor.y + Math.sin(angle) * 120 };
 }
 
 // Names alone never merge people. Only provider IDs verified by the backend do.
@@ -108,7 +104,7 @@ export function mergeLiveGraph(artists, edges, payload, anchorId, { positions = 
   const mapping = new Map(), aliases = new Map();
   const anchor = positions.get(anchorId) || artists[anchorId] || { x: 500, y: 300 };
   const incoming = payload.artists || [];
-  for (const raw of incoming) {
+  for (const [index, raw] of incoming.entries()) {
     const combined = { providerIds: { ...raw.providerIds } };
     const matches = Object.entries(artists).filter(([id, known]) => {
       if (providerIdsConflict(combined, known)) return false;
@@ -119,7 +115,7 @@ export function mergeLiveGraph(artists, edges, payload, anchorId, { positions = 
     const id = matches[0]?.[0] || raw.id;
     matches.slice(1).forEach(([duplicate]) => aliases.set(duplicate, id));
     const previous = artists[id];
-    const position = previous || positionFor(artists, anchor, positions);
+    const position = previous || positionFor(anchor, index);
     artists[id] = {
       ...previous, ...raw, id, apiId: raw.id,
       initials: raw.name.split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase(),
