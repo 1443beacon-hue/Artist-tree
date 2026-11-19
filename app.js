@@ -1,5 +1,5 @@
 import { createExplorer, layoutArtists, zoomAroundPoint, MIN_ZOOM, MAX_ZOOM } from './explorer-state.js';
-import { SOURCE_NAMES, EXPANSION_LIMIT, fetchApiStatus, fetchStartingPoints, searchLiveArtists, fetchArtist, fetchConnectionPages, requestId, mergeLiveGraph } from './live-client.js';
+import { SOURCE_NAMES, EXPANSION_LIMIT, fetchApiStatus, fetchStartingPoints, fetchTrackPreview, searchLiveArtists, fetchArtist, fetchConnectionPages, requestId, mergeLiveGraph } from './live-client.js';
 import { sameArtist } from './artist-identity.js';
 import { separateArtists, layoutNearbyArtists, bundleConnections } from './graph-layout.js';
 import { createElasticGraph, graphDistances, pointerToGraph, cameraToCenter } from './graph-interaction.js';
@@ -7,7 +7,8 @@ import { createIntroNetwork } from './intro-network.js';
 import { lookupFeedback, discoveryTargets, createDiscoveryFeedback } from './lookup-feedback.js';
 import { createMapStore, validateSavedMap } from './saved-maps.js';
 import { createSavedMapsUI } from './saved-maps-ui.js';
-import { sharedTrackPreview, createCreditPreview } from './credit-preview.js';
+import { sharedTrackPreview, recordingGroup, createCreditPreview } from './credit-preview.js';
+import { createTrackPlayer } from './track-player.js';
 
 const suggestions = ['Tohji', 'Bladee', 'Yung Lean', 'Lucy Bedroque', 'prettifun'];
 const artists = Object.create(null);
@@ -54,6 +55,7 @@ let nodeDrag = null, suppressedClick = null;
 let drag = null;
 let savedMapsUI, creditPreview, pathPreview = null, trailSignature = '';
 let creditGroup = null;
+let selectedTrack = null, trackPlayer;
 const elasticEnabled = () => !spotifyView && !motionPaused && !motionQuery.matches && !document.hidden;
 
 function syncMotion() {
@@ -104,17 +106,35 @@ function applyPathPreview() {
 }
 function previewPath(path = null) {
   if (path?.length) creditPreview?.dismiss(true);
-  pathPreview = path; applyPathPreview();
+  pathPreview = path; applyPathPreview(); applyCreditGroup();
 }
 
 function applyCreditGroup() {
-  const members = new Set(creditGroup?.participants.map(person => person.id) || []);
-  const pairs = new Set(creditGroup?.edgeKeys || []);
+  const group = pathPreview?.length ? null : creditGroup || selectedTrack;
+  const members = new Set(group?.participants.map(person => person.id) || []);
+  const pairs = new Set(group?.edgeKeys || []);
   world.classList.toggle('has-credit-group', members.size > 0);
   for (const node of $('#nodes').children) node.classList.toggle('is-credit-member', members.has(node.dataset.artist));
   // Two members may also share other songs. Only real edges carrying THIS
   // recording's evidence belong to its group; never invent a complete clique.
   edgeElements.forEach(({ link }, key) => link.classList.toggle('is-credit-edge', pairs.has(key)));
+}
+function clearSelectedTrack() {
+  selectedTrack = null; trackPlayer?.clear(); applyCreditGroup();
+}
+function closeTrackPanel() {
+  const id = selectedTrack?.artistId;
+  clearSelectedTrack(); creditPreview?.dismiss(true); renderPanel();
+  [...$('#nodes').children].find(node => node.dataset.artist === id)?.focus({ preventScroll: true });
+  creditPreview?.dismiss(true);
+}
+function openTrackPanel(credit) {
+  selectedTrack = credit; selectedConnection = null;
+  creditPreview?.dismiss(true); previewPath();
+  trackPlayer.show(credit, { focus: true });
+  applyCreditGroup();
+  if (window.innerWidth <= 760) $('#artist-panel').scrollIntoView?.({ block: 'start', behavior: motionPaused || motionQuery.matches ? 'instant' : 'smooth' });
+  $('#graph-announcement').textContent = `${credit.title} selected. Opened the official preview player panel.`;
 }
 function renderTrail() {
   const trail = explorer.trail, host = $('#exploration-trail');
@@ -141,6 +161,7 @@ function renderTrail() {
 }
 function focusTrailArtist(id) {
   if (!explorer.visibleIds.has(id)) return;
+  clearSelectedTrack();
   creditPreview?.dismiss(true);
   previewPath();
   if (explorer.selected !== id) { cancelLiveLookup(); profileLookup?.abort(); lookupVersion++; }
@@ -258,6 +279,7 @@ function cancelLiveLookup(clearDiscovery = true) {
 
 function selectArtist(id) {
   if (!Object.hasOwn(artists, id)) return;
+  clearSelectedTrack();
   creditPreview?.dismiss(true);
   previewPath();
   stopCameraAnimation();
@@ -426,10 +448,14 @@ function render() {
         if (event.pointerType !== 'touch') creditPreview?.enter(button, { point: { x: event.clientX, y: event.clientY } });
       });
       button.addEventListener('pointermove', event => creditPreview?.move(button, { x: event.clientX, y: event.clientY }));
-      button.addEventListener('pointerleave', () => { highlightConnections(null); creditPreview?.leave(button); });
+      button.addEventListener('pointerleave', () => { highlightConnections(null); creditPreview?.leave(button, { bridge: true }); });
       button.addEventListener('focus', () => { highlightConnections(id); creditPreview?.enter(button, { mode: 'focus' }); });
-      button.addEventListener('blur', () => { highlightConnections(null); creditPreview?.leave(button); });
+      button.addEventListener('blur', () => { highlightConnections(null); creditPreview?.leave(button, { bridge: true }); });
       button.addEventListener('keydown', event => {
+        if ((event.key || '').toLowerCase() === 'p' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+          if (creditPreview?.activate(button)) event.preventDefault();
+          return;
+        }
         if (!event.shiftKey || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
         event.preventDefault();
         manualCameraIntent();
@@ -587,6 +613,7 @@ function stopElasticMotion() {
 }
 
 function clearGraphInteraction() {
+  clearSelectedTrack();
   finishNodeDrag(true);
   stopElasticMotion(); stopCameraAnimation();
   elastic.clear(); targetLayout.clear();
@@ -596,6 +623,7 @@ function clearGraphInteraction() {
 }
 
 function showConnection(key) {
+  clearSelectedTrack();
   creditPreview?.dismiss(true);
   selectedConnection = key;
   renderPanel();
@@ -684,6 +712,14 @@ function renderEdges() {
 }
 
 function renderPanel() {
+  if (selectedTrack) {
+    const group = recordingGroup({ trackKey: selectedTrack.trackKey, parentId: selectedTrack.parentId,
+      artists, edges, visibleIds: explorer.visibleIds, scope: spotifyView ? 'spotify' : 'main' });
+    if (group.participants.length >= 2) {
+      selectedTrack = { ...selectedTrack, ...group }; trackPlayer.show(selectedTrack); applyCreditGroup(); return;
+    }
+    clearSelectedTrack();
+  }
   if (!explorer.selected) {
     $('#artist-panel').innerHTML = '<div class="panel-overline"><span>YOUR STARTING POINT</span><span aria-hidden="true">↗</span></div><h2 class="panel-name">It starts<br>with one artist.</h2><p class="panel-description">Search for someone you love. Select a result to place a single artist on the map, then click their portrait to follow the connections.</p><p class="live-lookup-status">Nothing expands automatically. You choose where to go next.</p>';
     return;
@@ -1134,18 +1170,25 @@ $('#sources-button').addEventListener('click',event=>{
 });
 $('.dialog-close').addEventListener('click',()=>dialog.close());
 dialog.addEventListener('click',event=>{if(event.target===dialog){const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close();}});
+trackPlayer = createTrackPlayer({
+  host: $('#artist-panel'), resolve: fetchTrackPreview, scope: spotifyView ? 'spotify' : 'main',
+  onClose: closeTrackPanel, onExplore: selectArtist
+});
 creditPreview = createCreditPreview({
   host: $('#map'),
   getCredit: id => sharedTrackPreview({ id, route: explorer.routeTo(id), artists, edges, visibleIds: explorer.visibleIds, scope: spotifyView ? 'spotify' : 'main' }),
   onChange: credit => { creditGroup = credit; applyCreditGroup(); },
+  onSelect: openTrackPanel,
   blocked: () => Boolean(nodeDrag || drag || cameraFrame !== null || document.hidden || pathPreview
     || !$('#search-results').hidden || !$('#map-save-popover').hidden || $('#info-dialog').open),
   motionAllowed: () => !motionPaused && !motionQuery.matches
 });
-window.addEventListener('scroll', () => creditPreview.dismiss(true), { passive: true });
+window.addEventListener('scroll', () => creditPreview.reposition(), { passive: true });
 window.addEventListener('resize', () => creditPreview.refresh());
 window.addEventListener('blur', () => creditPreview.dismiss(true));
-document.addEventListener('keydown', event => { if (event.key === 'Escape') creditPreview.dismiss(); });
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') { creditPreview.dismiss(); if (selectedTrack) closeTrackPanel(); }
+});
 savedMapsUI = createSavedMapsUI({
   button: $('#save-map-button'), popover: $('#map-save-popover'),
   store: createMapStore({ getStorage: () => window.localStorage, scope: spotifyView ? 'spotify' : 'main' }),

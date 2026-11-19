@@ -4,10 +4,10 @@ import { createCreditPreview } from './credit-preview.js';
 
 // The controller only needs these DOM operations. Keep deterministic lifecycle
 // coverage in npm test without adding a browser/runtime dependency.
-function fixture() {
+function fixture({ interactive = false } = {}) {
   class Element {
     constructor() {
-      this.children = []; this.attributes = new Map(); this.dataset = {}; this.style = {}; this.className = '';
+      this.children = []; this.attributes = new Map(); this.dataset = {}; this.style = {}; this.className = ''; this.listeners = {};
       this.classList = {
         contains: name => this.className.split(' ').includes(name),
         add: name => { if (!this.classList.contains(name)) this.className += ` ${name}`; },
@@ -23,6 +23,8 @@ function fixture() {
     getAttribute(key) { return this.attributes.get(key) ?? null; }
     hasAttribute(key) { return this.attributes.has(key); }
     removeAttribute(key) { this.attributes.delete(key); }
+    addEventListener(type, fn) { this.listeners[type] = fn; }
+    focus() { doc.activeElement = this; }
     querySelectorAll(selector) {
       const all = this.children.flatMap(node => [node, ...node.querySelectorAll('*')]);
       if (selector === '*') return all;
@@ -37,19 +39,20 @@ function fixture() {
   const node = new Element(); node.className = 'node'; node.dataset.artist = 'b'; node.setAttribute('title', 'Explore B'); host.append(node);
   const name = new Element(); name.className = 'node-name'; name.setAttribute('title', 'Artist B'); node.append(name);
   doc.elementFromPoint = () => node;
-  const changes = [], timers = new Map(); let sequence = 0, blocked = false, motion = true;
+  const changes = [], selections = [], timers = new Map(); let sequence = 0, blocked = false, motion = true;
   let credit = { parentId: 'a', artistId: 'b', title: '<Real track>', source: 'Genius', trackKey: 'genius:/real-track-lyrics',
     participants: [{ id: 'a', name: 'Artist A' }, { id: 'b', name: '<Artist B>' }, { id: 'c', name: 'Artist C' }],
     edgeKeys: ['a|b', 'a|c'] };
   const controller = createCreditPreview({ host, getCredit: () => credit,
-    onChange: value => changes.push(value), blocked: () => blocked, motionAllowed: () => motion,
+    onChange: value => changes.push(value), onSelect: interactive ? value => selections.push(value) : null,
+    blocked: () => blocked, motionAllowed: () => motion,
     schedule(fn, delay) { timers.set(++sequence, { fn, delay }); return sequence; }, cancel: id => timers.delete(id) });
   const card = doc.body.children.at(-1), child = name => card.children.find(node => node.classList.contains(name));
   const run = delay => {
     const task = [...timers].find(([, value]) => value.delay === delay);
     assert.ok(task, `expected ${delay}ms timer`); timers.delete(task[0]); task[1].fn();
   };
-  return { host, node, name, doc, card, child, controller, timers, run, changes,
+  return { host, node, name, doc, card, child, controller, timers, run, changes, selections,
     setCredit: value => { credit = value; }, setBlocked: value => { blocked = value; }, setMotion: value => { motion = value; } };
 }
 
@@ -151,4 +154,30 @@ test('rapid re-entry cancels an old fade timer so it cannot hide the next group'
   assert.ok(f.changes.at(-1));
   f.controller.destroy();
   assert.equal(f.changes.at(-1), null); assert.equal(f.timers.size, 0);
+});
+
+test('interactive cards bridge the pointer gap and stay open over the card without requesting playback', () => {
+  const f = fixture({ interactive: true }); f.controller.enter(f.node); f.run(120);
+  assert.equal(f.card.getAttribute('role'), 'region', 'interactive content is not placed in a tooltip role');
+  f.controller.leave(f.node, { bridge: true });
+  assert.equal(f.card.hidden, false); assert.equal(f.selections.length, 0);
+  f.card.listeners.pointerenter(); assert.equal(f.timers.size, 0);
+  f.doc.elementFromPoint = () => f.child('credit-preview-play');
+  f.controller.reposition(); assert.equal(f.card.hidden, false);
+  f.card.listeners.pointerleave(); f.run(200);
+  assert.equal(f.changes.at(-1), null); f.run(160);
+  assert.equal(f.card.hidden, true); assert.equal(f.selections.length, 0);
+  f.controller.destroy();
+});
+
+test('only explicit card activation opens the player, and context cancellation clears bridge timers', () => {
+  const f = fixture({ interactive: true }); f.controller.enter(f.node); f.run(120);
+  f.child('credit-preview-play').listeners.click();
+  assert.equal(f.selections.length, 1); assert.equal(f.card.hidden, true);
+  assert.equal(f.changes.at(-1), null); assert.equal(f.timers.size, 0);
+  f.controller.enter(f.node); f.run(120); f.controller.leave(f.node, { bridge: true });
+  f.controller.dismiss(true); assert.equal(f.timers.size, 0);
+  f.node.remove();
+  assert.equal(f.controller.activate(f.node), false, 'removed targets cannot replay stale selections');
+  f.controller.destroy();
 });

@@ -12,6 +12,7 @@ async function get(path, signal) {
 
 export const fetchApiStatus = () => get('/api/status');
 export const fetchStartingPoints = () => get('/api/starting-points');
+export const fetchTrackPreview = (credit, signal, scope = 'main') => get(`/api/track-preview?${new URLSearchParams({ provider: credit.provider, url: credit.url, scope })}`, signal);
 export const searchLiveArtists = (query, signal, scope = 'all') => get(`/api/search?${new URLSearchParams({ q: query, scope })}`, signal);
 export const fetchArtist = (id, signal) => get(`/api/artist?${new URLSearchParams({ id })}`, signal);
 export async function fetchConnections(id, name, offset, signal, onUpdate) {

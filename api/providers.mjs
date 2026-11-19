@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { createPrivateKey, sign } from 'node:crypto';
 import { ApiError, createHttpClient, publicError } from './http.mjs';
+import { recordingUrl, recordingKey } from '../credit-preview.js';
 
 export const PROVIDER_NAMES = { apple: 'Apple Music', spotify: 'Spotify', genius: 'Genius', musicbrainz: 'MusicBrainz' };
 const apiRoots = { apple: 'https://api.music.apple.com/v1', spotify: 'https://api.spotify.com/v1', genius: 'https://api.genius.com', musicbrainz: 'https://musicbrainz.org/ws/2' };
@@ -63,6 +64,16 @@ const spotifyArtist = raw => artist('spotify', raw?.id, raw?.name, {
 });
 const geniusArtist = raw => artist('genius', raw?.id, raw?.name, { url: raw?.url, image: raw?.image_url, tags: ['ARTIST'] });
 const asProducer = person => ({ ...person, tags: [...new Set([...person.tags, 'PRODUCER'])] });
+function youtubeVideoId(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password || url.port) return null;
+    const id = url.hostname === 'youtu.be' ? url.pathname.slice(1)
+      : ['www.youtube.com', 'youtube.com', 'm.youtube.com'].includes(url.hostname)
+        ? url.pathname === '/watch' ? url.searchParams.get('v') : url.pathname.match(/^\/embed\/([^/]+)$/)?.[1] : null;
+    return /^[a-zA-Z0-9_-]{11}$/.test(id || '') ? id : null;
+  } catch { return null; }
+}
 function requireArtist(person) {
   if (!person) throw new ApiError('not_found');
   return person;
@@ -217,6 +228,25 @@ export function createProviders({ env = process.env, http = createHttpClient(), 
       }
     },
     genius: {
+      async trackPlayerLinks(url) {
+        const canonical = recordingUrl(url, 'genius');
+        if (!canonical) throw new ApiError('invalid_request');
+        const query = new URL(canonical).pathname.replace(/-lyrics\/?$/, '').slice(1).replaceAll('-', ' ');
+        const hits = await get('genius', '/search', { q: query });
+        const expected = recordingKey(canonical, 'genius');
+        const matches = list(hits.response?.hits).map(hit => hit.result).filter(song => {
+          const link = recordingUrl(song?.url, 'genius');
+          return link && recordingKey(link, 'genius') === expected && validId('genius', String(song.id));
+        });
+        if (!matches.length) return null;
+        const data = await get('genius', `/songs/${matches[0].id}`, { text_format: 'plain' });
+        const song = data.response?.song, link = recordingUrl(song?.url, 'genius');
+        if (!link || recordingKey(link, 'genius') !== expected || String(song.id) !== String(matches[0].id)) return null;
+        return {
+          appleMusicId: validId('apple', String(song.apple_music_id || '')) ? String(song.apple_music_id) : null,
+          youtubeId: list(song.media).filter(item => item.provider === 'youtube').map(item => youtubeVideoId(item.url)).find(Boolean) || null
+        };
+      },
       async search(q) {
         const data = await get('genius', '/search', { q });
         const candidates = list(data.response?.hits).flatMap(hit => [hit.result?.primary_artist, ...list(hit.result?.primary_artists), ...list(hit.result?.featured_artists)]);
@@ -255,6 +285,14 @@ export function createProviders({ env = process.env, http = createHttpClient(), 
       }
     },
     musicbrainz: {
+      async appleSongUrl(url) {
+        const canonical = recordingUrl(url, 'musicbrainz');
+        if (!canonical) throw new ApiError('invalid_request');
+        const id = recordingKey(canonical, 'musicbrainz').slice('musicbrainz:'.length);
+        const recording = await get('musicbrainz', `/recording/${id}`, { inc: 'url-rels' });
+        if (recording.id?.toLowerCase() !== id) return null;
+        return list(recording.relations).map(item => recordingUrl(item.url?.resource, 'apple')).find(Boolean) || null;
+      },
       async search(q) {
         const escaped = q.replace(/[+\-!(){}\[\]^"~*?:\\/|&]/g, ' ');
         const data = await get('musicbrainz', '/artist/', { query: `artist:"${escaped}"`, limit: 8 });

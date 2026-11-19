@@ -34,7 +34,7 @@ test('the layering fix preserves a bounded, scrollable result menu and the map s
   assert.equal(popover['overflow-y'], 'auto');
 });
 
-test('hover-credit cards cannot steal clicks or cover the search and toolbar overlays', () => {
+test('hidden/fading credit cards are click-through and stay below search and toolbar overlays', () => {
   const card = declarations('.credit-preview');
   assert.equal(card['pointer-events'], 'none');
   assert.ok(Number(card['z-index']) < Number(declarations('.explorer-toolbar')['z-index']));

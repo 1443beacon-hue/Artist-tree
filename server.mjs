@@ -7,13 +7,15 @@ import { createProviders } from './api/providers.mjs';
 import { createMusicService } from './api/service.mjs';
 import { ApiError, publicError } from './api/http.mjs';
 import { createStartingPointsService } from './api/starting-points.mjs';
+import { createTrackPreviewService } from './api/track-preview.mjs';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 try { loadEnvFile(resolve(root, '.env')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
 const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml' };
-const publicFiles = new Set(['/index.html', '/styles.css', '/app.js', '/explorer-state.js', '/live-client.js', '/artist-identity.js', '/graph-layout.js', '/graph-interaction.js', '/intro-network.js', '/lookup-feedback.js', '/saved-maps.js', '/saved-maps-ui.js', '/credit-preview.js', '/assets/spotify-logo.svg']);
+const publicFiles = new Set(['/index.html', '/styles.css', '/app.js', '/explorer-state.js', '/live-client.js', '/artist-identity.js', '/graph-layout.js', '/graph-interaction.js', '/intro-network.js', '/lookup-feedback.js', '/saved-maps.js', '/saved-maps-ui.js', '/credit-preview.js', '/track-player.js', '/assets/spotify-logo.svg']);
 const providers = createProviders();
 const service = createMusicService(providers);
+const trackPreviews = createTrackPreviewService(providers, { storefront: process.env.APPLE_MUSIC_STOREFRONT });
 const startingPoints = createStartingPointsService(providers.genius, { loadSnapshot: async () => {
   const path = process.env.GENIUS_ARTIST_CHART_FILE?.trim() || 'data/genius-artist-chart.json';
   const data = await readFile(resolve(root, path), 'utf8');
@@ -42,6 +44,9 @@ const server = createServer(async (req, res) => {
       if (++quota.count > 60) { json(res, 429, { error: 'Too many local requests. Please wait a minute.' }); return; }
       if (pathname === '/api/status') { json(res, 200, { providers: service.status() }); return; }
       if (pathname === '/api/starting-points') { json(res, 200, await startingPoints()); return; }
+      if (pathname === '/api/track-preview') {
+        json(res, 200, await trackPreviews.resolve(url.searchParams.get('provider'), url.searchParams.get('url'), url.searchParams.get('scope') || 'main')); return;
+      }
       if (pathname === '/api/search') {
         const query = (url.searchParams.get('q') || '').trim();
         if (query.length < 2 || query.length > 100) { json(res, 400, { error: 'Search must contain 2–100 characters.' }); return; }

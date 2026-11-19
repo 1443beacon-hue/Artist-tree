@@ -1,6 +1,6 @@
 const SOURCES = { genius: 'Genius', musicbrainz: 'MusicBrainz', apple: 'Apple Music', spotify: 'Spotify' };
 
-function recordingUrl(value, provider) {
+export function recordingUrl(value, provider) {
   try {
     const url = new URL(value);
     if (url.protocol !== 'https:' || url.username || url.password || url.port) return null;
@@ -14,7 +14,7 @@ function recordingUrl(value, provider) {
 
 // Recording IDs/URLs, never titles, establish a shared track. Tracking params,
 // regional Spotify paths and Apple album/song slugs do not change its identity.
-function recordingKey(value, provider) {
+export function recordingKey(value, provider) {
   const url = new URL(value);
   if (provider === 'apple') return `${provider}:${url.pathname.includes('/song/') ? url.pathname.split('/').filter(Boolean).at(-1) : url.searchParams.get('i')}`;
   if (provider === 'musicbrainz') return `${provider}:${url.pathname.split('/').filter(Boolean).at(-1).toLowerCase()}`;
@@ -35,6 +35,22 @@ function* trackCredits(edge, scope) {
   }
 }
 
+export function recordingGroup({ trackKey, parentId, artists, edges, visibleIds, scope = 'main' }) {
+  const members = new Set(), pairs = new Set();
+  for (const edge of edges) {
+    if (!visibleIds.has(edge.a) || !visibleIds.has(edge.b) || !artists[edge.a] || !artists[edge.b]) continue;
+    for (const credit of trackCredits(edge, scope)) {
+      if (credit.trackKey !== trackKey) continue;
+      members.add(edge.a); members.add(edge.b);
+      pairs.add([edge.a, edge.b].sort().join('|'));
+      break;
+    }
+  }
+  const ordered = [...visibleIds].filter(id => members.has(id));
+  if (members.has(parentId)) { ordered.splice(ordered.indexOf(parentId), 1); ordered.unshift(parentId); }
+  return { participants: ordered.map(id => ({ id, name: artists[id].name })), edgeKeys: [...pairs] };
+}
+
 // The source is the hovered person's recorded branch parent, not an arbitrary
 // selected neighbor or a name match. Never substitute a solo/popular song.
 export function sharedTrackPreview({ id, route, artists, edges, visibleIds, scope = 'main' }) {
@@ -51,20 +67,10 @@ export function sharedTrackPreview({ id, route, artists, edges, visibleIds, scop
     break;
   }
   if (!selected) return null;
-  const members = new Set(), pairs = new Set();
-  for (const edge of visible) {
-    for (const credit of trackCredits(edge, scope)) {
-      if (credit.trackKey !== selected.trackKey) continue;
-      members.add(edge.a); members.add(edge.b);
-      pairs.add([edge.a, edge.b].sort().join('|'));
-      break;
-    }
-  }
   return { parentId: parent, artistId: id, parentName: artists[parent].name, artistName: artists[id].name,
     ...selected, source: SOURCES[selected.provider],
     relation: selected.type === 'production' ? 'Production credit' : 'Shared performance',
-    participants: [parent, ...[...visibleIds].filter(key => key !== parent && members.has(key))].map(key => ({ id: key, name: artists[key].name })),
-    edgeKeys: [...pairs] };
+    ...recordingGroup({ trackKey: selected.trackKey, parentId: parent, artists, edges: visible, visibleIds, scope }) };
 }
 
 const area = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left))
@@ -104,14 +110,15 @@ export function placeCreditPreview(anchor, size, bounds, obstacles = []) {
   return placed[0];
 }
 
-// One unscaled tooltip for the entire map; no network calls, image downloads,
-// permanent animation loop, or extra interactive targets over the graph.
-export function createCreditPreview({ host, getCredit, onChange = () => {}, blocked = () => false, motionAllowed = () => true,
+// One unscaled card for the map. Hover is network-free; its optional action
+// opens a separate, persistent official player only after an explicit gesture.
+export function createCreditPreview({ host, getCredit, onChange = () => {}, onSelect = null, blocked = () => false, motionAllowed = () => true,
   schedule = setTimeout, cancel = clearTimeout }) {
   const doc = host.ownerDocument, view = doc.defaultView;
   const element = doc.createElement('div');
   element.id = 'shared-credit-preview'; element.className = 'credit-preview'; element.hidden = true;
-  element.setAttribute('role', 'tooltip'); element.setAttribute('aria-hidden', 'true');
+  element.setAttribute('role', onSelect ? 'region' : 'tooltip'); element.setAttribute('aria-hidden', 'true');
+  if (onSelect) element.setAttribute('aria-label', 'Shared track preview');
   const eyebrow = doc.createElement('span'), title = doc.createElement('strong'), summary = doc.createElement('p'),
     participants = doc.createElement('ul'), meta = doc.createElement('span');
   eyebrow.className = 'credit-preview-eyebrow'; eyebrow.textContent = '♫  SHARED TRACK';
@@ -119,7 +126,12 @@ export function createCreditPreview({ host, getCredit, onChange = () => {}, bloc
   participants.className = 'credit-preview-artists'; participants.setAttribute('aria-label', 'Credited artists on this map');
   meta.className = 'credit-preview-meta';
   element.append(eyebrow, title, summary, participants, meta); doc.body.append(element);
-  let active = null, showTimer = null, hideTimer = null, signature = '', published = '', obstacles = [];
+  const play = doc.createElement('button');
+  play.className = 'credit-preview-play'; play.type = 'button'; play.textContent = '▶  Open preview';
+  play.hidden = !onSelect;
+  play.title = 'Open the official player. Shortcut: P while the artist is focused.';
+  element.append(play);
+  let active = null, showTimer = null, hideTimer = null, exitTimer = null, signature = '', published = '', obstacles = [];
   let displayedPeople = [], displayedArtist = '', fitSignature = '';
   const renderParticipants = limit => {
     participants.replaceChildren();
@@ -143,6 +155,7 @@ export function createCreditPreview({ host, getCredit, onChange = () => {}, bloc
   const stopTimer = kind => {
     if (kind === 'show' && showTimer !== null) { cancel(showTimer); showTimer = null; }
     if (kind === 'hide' && hideTimer !== null) { cancel(hideTimer); hideTimer = null; }
+    if (kind === 'exit' && exitTimer !== null) { cancel(exitTimer); exitTimer = null; }
   };
   const describe = (node, add) => {
     if (!node) return;
@@ -152,7 +165,7 @@ export function createCreditPreview({ host, getCredit, onChange = () => {}, bloc
     else node.removeAttribute('aria-describedby');
   };
   const conceal = (immediate = false) => {
-    stopTimer('show'); stopTimer('hide'); describe(active?.node, false);
+    stopTimer('show'); stopTimer('hide'); stopTimer('exit'); describe(active?.node, false);
     active?.titles?.forEach((value, node) => node.setAttribute('title', value));
     active?.titles?.clear();
     element.classList.remove('is-visible'); element.setAttribute('aria-hidden', 'true'); signature = '';
@@ -164,8 +177,43 @@ export function createCreditPreview({ host, getCredit, onChange = () => {}, bloc
     }
   };
   const dismiss = (immediate = false) => { conceal(immediate); active = null; };
+  const activate = node => {
+    if (!onSelect || !host.contains(node) || blocked()) return false;
+    const credit = getCredit(node.dataset.artist);
+    if (!credit) { dismiss(true); return false; }
+    dismiss(true); onSelect(credit); return true;
+  };
+  const queueExit = () => {
+    stopTimer('exit');
+    if (!active) return;
+    active.travel = true;
+    exitTimer = schedule(() => {
+      exitTimer = null;
+      if (!active) return;
+      active.travel = false;
+      if (!active.overCard && !element.contains(doc.activeElement)) dismiss();
+    }, 200);
+    exitTimer?.unref?.();
+  };
+  if (onSelect) {
+    play.addEventListener('click', () => { if (active) activate(active.node); });
+    element.addEventListener('pointerenter', () => {
+      if (active) { stopTimer('exit'); active.overCard = true; active.travel = false; }
+    });
+    element.addEventListener('pointerleave', () => {
+      if (active) { active.overCard = false; queueExit(); }
+    });
+    element.addEventListener('focusin', () => stopTimer('exit'));
+    element.addEventListener('focusout', event => {
+      if (!element.contains(event.relatedTarget)) queueExit();
+    });
+    element.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { const node = active?.node; dismiss(); node?.focus?.({ preventScroll: true }); }
+    });
+  }
   const stillOver = () => {
     if (!active || !host.contains(active.node)) return false;
+    if (active.overCard || active.travel || element.contains(doc.activeElement)) return true;
     if (active.mode !== 'pointer' || !active.point || typeof doc.elementFromPoint !== 'function') return true;
     return active.node.contains(doc.elementFromPoint(active.point.x, active.point.y));
   };
@@ -215,6 +263,7 @@ export function createCreditPreview({ host, getCredit, onChange = () => {}, bloc
       // highlighted in the graph, even when its name does not fit the card.
       fitSignature = '';
       meta.textContent = `${credit.source} · Track credits`;
+      play.setAttribute('aria-label', `Open official preview for ${credit.title}`);
       element.dataset.parentId = credit.parentId; element.dataset.artistId = credit.artistId;
       element.dataset.trackKey = credit.trackKey || '';
       signature = key;
@@ -242,7 +291,12 @@ export function createCreditPreview({ host, getCredit, onChange = () => {}, bloc
       conceal(true); active = { node, mode, point }; refresh();
     },
     move(node, point) { if (active?.node === node && active.mode === 'pointer') active.point = point; },
-    leave(node) { if (active?.node === node) dismiss(); },
+    leave(node, { bridge = false } = {}) {
+      if (active?.node !== node) return;
+      if (onSelect && (bridge || element.contains(doc.activeElement))) queueExit();
+      else dismiss();
+    },
+    activate,
     dismiss,
     refresh,
     reposition,
