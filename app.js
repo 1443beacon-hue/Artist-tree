@@ -53,6 +53,7 @@ let cameraRevision = 0, focusIntent = null;
 let nodeDrag = null, suppressedClick = null;
 let drag = null;
 let savedMapsUI, creditPreview, pathPreview = null, trailSignature = '';
+let creditGroup = null;
 const elasticEnabled = () => !spotifyView && !motionPaused && !motionQuery.matches && !document.hidden;
 
 function syncMotion() {
@@ -101,7 +102,20 @@ function applyPathPreview() {
   for (const node of $('#nodes').children) node.classList.toggle('is-path-node', ids.has(node.dataset.artist));
   edgeElements.forEach(({ link }, key) => link.classList.toggle('is-path', pairs.has(key)));
 }
-function previewPath(path = null) { pathPreview = path; applyPathPreview(); }
+function previewPath(path = null) {
+  if (path?.length) creditPreview?.dismiss(true);
+  pathPreview = path; applyPathPreview();
+}
+
+function applyCreditGroup() {
+  const members = new Set(creditGroup?.participants.map(person => person.id) || []);
+  const pairs = new Set(creditGroup?.edgeKeys || []);
+  world.classList.toggle('has-credit-group', members.size > 0);
+  for (const node of $('#nodes').children) node.classList.toggle('is-credit-member', members.has(node.dataset.artist));
+  // Two members may also share other songs. Only real edges carrying THIS
+  // recording's evidence belong to its group; never invent a complete clique.
+  edgeElements.forEach(({ link }, key) => link.classList.toggle('is-credit-edge', pairs.has(key)));
+}
 function renderTrail() {
   const trail = explorer.trail, host = $('#exploration-trail');
   $('#exploration-path').hidden = trail.length === 0;
@@ -582,6 +596,7 @@ function clearGraphInteraction() {
 }
 
 function showConnection(key) {
+  creditPreview?.dismiss(true);
   selectedConnection = key;
   renderPanel();
   $('#graph-announcement').textContent = 'Connection selected. Song credits and source links are in the details panel.';
@@ -665,6 +680,7 @@ function renderEdges() {
   });
   syncMotion();
   applyPathPreview();
+  applyCreditGroup();
 }
 
 function renderPanel() {
@@ -1121,6 +1137,7 @@ dialog.addEventListener('click',event=>{if(event.target===dialog){const r=dialog
 creditPreview = createCreditPreview({
   host: $('#map'),
   getCredit: id => sharedTrackPreview({ id, route: explorer.routeTo(id), artists, edges, visibleIds: explorer.visibleIds, scope: spotifyView ? 'spotify' : 'main' }),
+  onChange: credit => { creditGroup = credit; applyCreditGroup(); },
   blocked: () => Boolean(nodeDrag || drag || cameraFrame !== null || document.hidden || pathPreview
     || !$('#search-results').hidden || !$('#map-save-popover').hidden || $('#info-dialog').open),
   motionAllowed: () => !motionPaused && !motionQuery.matches

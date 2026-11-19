@@ -370,7 +370,7 @@ nav.exploration-path { height: auto; min-width: 0; gap: 15px; padding: 10px 24px
 
 /* A single unscaled, read-only credit card. Below toolbar/search overlays. */
 .credit-preview {
-  position: fixed; z-index: 15; width: 250px; max-width: calc(100vw - 20px);
+  position: fixed; z-index: 15; width: 250px; max-width: calc(100vw - 20px); display: flex; flex-direction: column;
   padding: 14px 16px; border: 1px solid #dce2d4; border-radius: 11px;
   background: #fcfcf8fa; box-shadow: 0 10px 30px #26301d18, 0 2px 6px #26301d06;
   pointer-events: none; overflow: hidden; opacity: 0; transform: translateY(5px);
@@ -378,11 +378,31 @@ nav.exploration-path { height: auto; min-width: 0; gap: 15px; padding: 10px 24px
 }
 .credit-preview[hidden] { display: none; }
 .credit-preview.is-visible { opacity: 1; transform: translateY(0); }
-.credit-preview-eyebrow { display: block; color: #7088d4; font-size: 7px; font-weight: 500; letter-spacing: 1.2px; margin-bottom: 9px; }
-.credit-preview-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; color: #2b3424; font-size: 15px; font-weight: 500; letter-spacing: -.35px; line-height: 1.3; }
-.credit-preview-pair { margin: 6px 0 10px; color: #89927d; font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-.credit-preview-meta { display: block; color: #71835d; font-size: 8px; line-height: 1.5; border-top: 1px solid #e7ebdf; padding-top: 8px; }
+.credit-preview-eyebrow { display: block; flex-shrink: 0; color: #7088d4; font-size: 7px; font-weight: 500; letter-spacing: 1.2px; margin-bottom: 9px; }
+.credit-preview-title { display: -webkit-box; flex-shrink: 0; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; color: #2b3424; font-size: 15px; font-weight: 500; letter-spacing: -.35px; line-height: 1.3; }
+.credit-preview-summary { flex-shrink: 0; margin: 7px 0 9px; color: #89927d; font-size: 9px; line-height: 1.4; }
+.credit-preview-artists { display: flex; flex-wrap: wrap; gap: 5px; min-height: 0; overflow: hidden; margin: 0 0 12px; padding: 0; list-style: none; }
+.credit-preview-artist { min-width: 0; max-width: 100%; padding: 4px 7px; border: 1px solid #e3e7da; border-radius: 5px; background: #f2f4ec; color: #66745b; font-size: 10px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.credit-preview-artist.is-hovered { background: #edf0fc; border-color: #dce2f6; color: #5269b5; }
+.credit-preview-more { align-self: center; padding: 3px 2px; color: #89927d; font-size: 8px; }
+.credit-preview-meta { display: block; flex-shrink: 0; color: #71835d; font-size: 8px; line-height: 1.5; border-top: 1px solid #e7ebdf; padding-top: 8px; }
+/* Use the inner orbit: node-unfold owns the outer button's opacity/geometry. */
+.node-orbit { transition: opacity 220ms ease; }
+.graph-world.has-credit-group .node:not(.is-credit-member) .node-orbit { opacity: .3; }
+.graph-world.has-credit-group .node.is-credit-member .node-orbit { opacity: 1; }
+.graph-world.has-credit-group .node.is-credit-member .node-photo { box-shadow: 0 0 0 2px #9aacef99, 0 5px 20px #3155e712; }
+.graph-world.has-credit-group .node.is-credit-member .node-shade { opacity: 0; }
+.graph-world.has-credit-group .node.is-credit-member .node-name,
+.graph-world.has-credit-group .node.is-credit-member .node-role { opacity: 1; }
+.graph-world.has-credit-group .node:not(.is-credit-member) .node-photo { box-shadow: none; }
+.connections .connection-link { transition: opacity 220ms ease; }
+.graph-world.has-credit-group .connections .connection-link:not(.is-credit-edge) { opacity: .1 !important; }
+.graph-world.has-credit-group .connections .connection-link.is-credit-edge { opacity: 1 !important; }
+.graph-world.has-credit-group .connections .connection-link.is-credit-edge .edge { stroke: #6e85d2; stroke-width: 1.8; opacity: 1; }
+.graph-world.has-credit-group .connection-link.is-credit-edge .connection-flow { fill: #6e85d2; opacity: .8; }
+.motion-paused .node-orbit, .motion-paused .node-photo { transition: none; }
 .motion-paused .credit-preview { transition: none; transform: none; }
 @media (prefers-reduced-motion: reduce) {
   .credit-preview { transition: none; transform: none; }
+  .node-orbit, .node-photo, .node-shade, .node-name, .node-role, .connections .connection-link { transition: none; }
 }

@@ -52,6 +52,102 @@ test('source-specific recording links preserve credit type and Spotify isolation
   assert.equal(preview({ scope: 'spotify', edges: [spotify] }).relation, 'Shared performance');
 });
 
+test('one song groups all visible verified performers and producers without inventing links between them', () => {
+  const result = preview({ edges: [
+    credit('a', 'b', { type: 'collaboration' }),
+    credit('a', 'c'),
+    credit('c', 'a'), // A reverse/duplicate relationship is still one line.
+    credit('b', 'c', { url: 'https://genius.com/another-track-lyrics' })
+  ] });
+  assert.deepEqual(result.participants, [
+    { id: 'a', name: 'Artist A' }, { id: 'b', name: 'Artist B' }, { id: 'c', name: 'Artist C' }
+  ]);
+  assert.deepEqual(result.edgeKeys, ['a|b', 'a|c']);
+  assert.equal(result.relation, 'Shared performance');
+});
+
+test('four neighboring people credited on one song become one five-person group including the branch parent', () => {
+  const people = { ...artists, d: { name: 'Artist D' }, e: { name: 'Artist E' } };
+  const result = preview({ artists: people, visibleIds: new Set(Object.keys(people)),
+    edges: ['b', 'c', 'd', 'e'].map((id, index) => credit('a', id, { type: index % 2 ? 'production' : 'collaboration' })) });
+  assert.deepEqual(result.participants.map(person => person.id), ['a', 'b', 'c', 'd', 'e']);
+  assert.deepEqual(result.edgeKeys, ['a|b', 'a|c', 'a|d', 'a|e']);
+});
+
+test('same-title songs, remixes, and different providers never become one group', () => {
+  for (const different of [
+    { url: 'https://genius.com/Another-real-track-lyrics' },
+    { url: 'https://genius.com/Artists-real-track-remix-lyrics' },
+    { provider: 'apple', url: 'https://music.apple.com/us/song/real-track/456' },
+    { provider: 'musicbrainz', url: 'https://musicbrainz.org/recording/cd689e77-dfdd-4f81-b50c-5e5a3f5e38a4' }
+  ]) {
+    const result = preview({ edges: [credit('a', 'b'), credit('a', 'c', different)] });
+    assert.deepEqual(result.participants.map(person => person.id), ['a', 'b']);
+    assert.deepEqual(result.edgeKeys, ['a|b']);
+  }
+});
+
+test('canonical source recording identities ignore tracking, fragments and regional/album slugs', () => {
+  const cases = [
+    ['genius', 'https://genius.com/Artists-real-track-lyrics?utm_source=map#credits',
+      'https://www.genius.com/Artists-real-track-lyrics/'],
+    ['musicbrainz', 'https://musicbrainz.org/recording/cd689e77-dfdd-4f81-b50c-5e5a3f5e38a4?x=1',
+      'https://musicbrainz.org/recording/CD689E77-DFDD-4F81-B50C-5E5A3F5E38A4/'],
+    ['apple', 'https://music.apple.com/us/album/album-title/123?i=456&ls=1',
+      'https://music.apple.com/kr/song/localized-title/456'],
+    ['spotify', 'https://open.spotify.com/track/2xvtxDNInKDV4AvGmjw6d1?si=abc',
+      'https://open.spotify.com/intl-ko/track/2xvtxDNInKDV4AvGmjw6d1']
+  ];
+  for (const [provider, first, second] of cases) {
+    const result = preview({ scope: provider === 'spotify' ? 'spotify' : 'main', edges: [
+      credit('a', 'b', { provider, url: first }), credit('a', 'c', { provider, url: second, work: 'Localized title' })
+    ] });
+    assert.deepEqual(result.participants.map(person => person.id), ['a', 'b', 'c'], provider);
+  }
+});
+
+test('only visible endpoints with valid recording evidence join a group', () => {
+  for (const invalid of [
+    { type: 'similar' }, { type: 'membership' }, { origin: 'reference' },
+    { url: 'https://genius.com/artists/Artist-c' }, { work: '3 credited works' },
+    { url: 'https://genius.com:444/Artists-real-track-lyrics' },
+    { evidence: [{ work: 'Real track', url: 'https://genius.com/Artists-real-track-lyrics', origin: 'reference' }] },
+    { evidence: [{ work: 'Real track', url: 'https://genius.com/Artists-real-track-lyrics', type: 'membership' }] }
+  ]) assert.deepEqual(preview({ edges: [credit('a', 'b'), credit('a', 'c', invalid)] }).edgeKeys, ['a|b']);
+  assert.deepEqual(preview({ visibleIds: new Set(['a', 'b']), edges: [credit('a', 'b'), credit('a', 'c')] }).edgeKeys, ['a|b']);
+  assert.deepEqual(preview({ edges: [credit('a', 'b'), credit('c', 'hidden'), credit('c', 'missing')] }).edgeKeys, ['a|b']);
+  assert.equal(preview({ edges: [credit('a', 'b', { provider: 'apple', url: 'https://music.apple.com/us/song/not-an-id' })] }), null);
+});
+
+test('grouped evidence is inspected per recording, not its summary label or another evidence URL', () => {
+  const result = preview({ edges: [
+    credit('a', 'b'),
+    credit('a', 'c', { work: '2 credited works', evidence: [
+      { work: 'Other recording', url: 'https://genius.com/Other-track-lyrics' },
+      { work: 'Real track', url: 'https://genius.com/Artists-real-track-lyrics' }
+    ] })
+  ] });
+  assert.deepEqual(result.edgeKeys, ['a|b', 'a|c']);
+});
+
+test('hovering siblings of the same track preserves member order and never mutates graph data', () => {
+  const edges = [credit('a', 'b'), credit('a', 'c')], before = JSON.stringify(edges);
+  const first = preview({ edges }), next = preview({ edges, id: 'c', route: ['a', 'c'] });
+  assert.deepEqual(first.participants, next.participants);
+  assert.deepEqual(first.edgeKeys, next.edgeKeys);
+  assert.equal(first.trackKey, next.trackKey);
+  first.participants.pop(); first.edgeKeys.pop();
+  assert.equal(preview({ edges }).participants.length, 3);
+  assert.equal(JSON.stringify(edges), before);
+});
+
+test('a participant can join by another verified pair on the same recording, without requiring a fake root edge', () => {
+  const result = preview({ edges: [credit('a', 'b'), credit('b', 'c')] });
+  assert.deepEqual(result.participants.map(person => person.id), ['a', 'b', 'c']);
+  assert.deepEqual(result.edgeKeys, ['a|b', 'b|c']);
+  assert.ok(!result.edgeKeys.includes('a|c'));
+});
+
 test('the card stays inside small viewports and moves away from the portrait and captions when space permits', () => {
   const bounds = { left: 10, right: 310, top: 10, bottom: 510 };
   for (const anchor of [
