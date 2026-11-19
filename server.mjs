@@ -11,7 +11,7 @@ import { createStartingPointsService } from './api/starting-points.mjs';
 const root = fileURLToPath(new URL('.', import.meta.url));
 try { loadEnvFile(resolve(root, '.env')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
 const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml' };
-const publicFiles = new Set(['/index.html', '/styles.css', '/app.js', '/explorer-state.js', '/live-client.js', '/artist-identity.js', '/graph-layout.js', '/graph-interaction.js', '/intro-network.js', '/lookup-feedback.js', '/saved-maps.js', '/saved-maps-ui.js', '/assets/spotify-logo.svg']);
+const publicFiles = new Set(['/index.html', '/styles.css', '/app.js', '/explorer-state.js', '/live-client.js', '/artist-identity.js', '/graph-layout.js', '/graph-interaction.js', '/intro-network.js', '/lookup-feedback.js', '/saved-maps.js', '/saved-maps-ui.js', '/credit-preview.js', '/assets/spotify-logo.svg']);
 const providers = createProviders();
 const service = createMusicService(providers);
 const startingPoints = createStartingPointsService(providers.genius, { loadSnapshot: async () => {

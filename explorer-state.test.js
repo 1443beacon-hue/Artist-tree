@@ -60,6 +60,17 @@ test('trail snapshots are independent and restore without claiming a running loo
   assert.deepEqual([...explorer.visibleIds], snapshot.visible);
 });
 
+test('a hovered branch exposes a defensive copy of its real discovery route', () => {
+  const explorer = createExplorer({ artists, edges, seeds: [], initialArtist: null });
+  explorer.start('bladee'); explorer.select('bladee'); explorer.select('tohji');
+  assert.deepEqual(explorer.routeTo('mechatok'), ['bladee', 'tohji', 'mechatok']);
+  explorer.routeTo('mechatok').pop();
+  assert.deepEqual(explorer.routeTo('mechatok'), ['bladee', 'tohji', 'mechatok']);
+  explorer.back();
+  assert.deepEqual(explorer.routeTo('mechatok'), [], 'removed branches cannot provide stale hover credits');
+  assert.deepEqual(explorer.routeTo('bladee'), ['bladee']);
+});
+
 test('the application can start empty, then a search chooses exactly one artist without expanding', () => {
   const explorer = createExplorer({ artists, edges, seeds: [], initialArtist: null });
   assert.equal(explorer.selected, null);

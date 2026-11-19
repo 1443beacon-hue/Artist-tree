@@ -367,3 +367,22 @@ nav.exploration-path { height: auto; min-width: 0; gap: 15px; padding: 10px 24px
   .explorer-navigation { gap: 10px; }
   .explorer-toolbar { padding-inline: 12px; gap: 8px; }
 }
+
+/* A single unscaled, read-only credit card. Below toolbar/search overlays. */
+.credit-preview {
+  position: fixed; z-index: 15; width: 250px; max-width: calc(100vw - 20px);
+  padding: 14px 16px; border: 1px solid #dce2d4; border-radius: 11px;
+  background: #fcfcf8fa; box-shadow: 0 10px 30px #26301d18, 0 2px 6px #26301d06;
+  pointer-events: none; overflow: hidden; opacity: 0; transform: translateY(5px);
+  transition: opacity 140ms ease, transform 180ms cubic-bezier(.2, .8, .2, 1);
+}
+.credit-preview[hidden] { display: none; }
+.credit-preview.is-visible { opacity: 1; transform: translateY(0); }
+.credit-preview-eyebrow { display: block; color: #7088d4; font-size: 7px; font-weight: 500; letter-spacing: 1.2px; margin-bottom: 9px; }
+.credit-preview-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; color: #2b3424; font-size: 15px; font-weight: 500; letter-spacing: -.35px; line-height: 1.3; }
+.credit-preview-pair { margin: 6px 0 10px; color: #89927d; font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.credit-preview-meta { display: block; color: #71835d; font-size: 8px; line-height: 1.5; border-top: 1px solid #e7ebdf; padding-top: 8px; }
+.motion-paused .credit-preview { transition: none; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .credit-preview { transition: none; transform: none; }
+}

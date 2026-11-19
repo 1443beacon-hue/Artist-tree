@@ -44,6 +44,10 @@ export function createExplorer({ artists, edges, seeds, initialArtist }) {
     get selected() { return selected; },
     get canGoBack() { return history.length > 0; },
     get trail() { return [...trail]; },
+    routeTo(id) {
+      const route = routes.get(id);
+      return route?.every((key, index) => visible.has(key) && (index === 0 || connected(route[index - 1], key))) ? [...route] : [];
+    },
     isExpanded: id => expanded.has(id),
     connections,
     start(id) {

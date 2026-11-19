@@ -7,6 +7,7 @@ import { createIntroNetwork } from './intro-network.js';
 import { lookupFeedback, discoveryTargets, createDiscoveryFeedback } from './lookup-feedback.js';
 import { createMapStore, validateSavedMap } from './saved-maps.js';
 import { createSavedMapsUI } from './saved-maps-ui.js';
+import { sharedTrackPreview, createCreditPreview } from './credit-preview.js';
 
 const suggestions = ['Tohji', 'Bladee', 'Yung Lean', 'Lucy Bedroque', 'prettifun'];
 const artists = Object.create(null);
@@ -51,7 +52,7 @@ let cameraFrame = null, cameraTarget = null;
 let cameraRevision = 0, focusIntent = null;
 let nodeDrag = null, suppressedClick = null;
 let drag = null;
-let savedMapsUI, pathPreview = null, trailSignature = '';
+let savedMapsUI, creditPreview, pathPreview = null, trailSignature = '';
 const elasticEnabled = () => !spotifyView && !motionPaused && !motionQuery.matches && !document.hidden;
 
 function syncMotion() {
@@ -69,6 +70,7 @@ function syncMotion() {
   toggle.title = motionQuery.matches ? 'Reduced motion is enabled in your system settings' : toggle.getAttribute('aria-label');
   if (paused) { stopElasticMotion(); stopCameraAnimation(); }
   if (paused) discoveryFeedback.clear();
+  if (document.hidden) creditPreview?.dismiss(true);
   introNetwork.setPaused(paused);
 }
 
@@ -125,6 +127,7 @@ function renderTrail() {
 }
 function focusTrailArtist(id) {
   if (!explorer.visibleIds.has(id)) return;
+  creditPreview?.dismiss(true);
   previewPath();
   if (explorer.selected !== id) { cancelLiveLookup(); profileLookup?.abort(); lookupVersion++; }
   selectedConnection = null; stopCameraAnimation();
@@ -241,6 +244,7 @@ function cancelLiveLookup(clearDiscovery = true) {
 
 function selectArtist(id) {
   if (!Object.hasOwn(artists, id)) return;
+  creditPreview?.dismiss(true);
   previewPath();
   stopCameraAnimation();
   focusIntent = { id, revision: cameraRevision };
@@ -403,10 +407,14 @@ function render() {
         selectArtist(id);
         if (event.detail === 0) button.focus({ preventScroll: true });
       });
-      button.addEventListener('pointerenter', () => highlightConnections(id));
-      button.addEventListener('pointerleave', () => highlightConnections(null));
-      button.addEventListener('focus', () => highlightConnections(id));
-      button.addEventListener('blur', () => highlightConnections(null));
+      button.addEventListener('pointerenter', event => {
+        highlightConnections(id);
+        if (event.pointerType !== 'touch') creditPreview?.enter(button, { point: { x: event.clientX, y: event.clientY } });
+      });
+      button.addEventListener('pointermove', event => creditPreview?.move(button, { x: event.clientX, y: event.clientY }));
+      button.addEventListener('pointerleave', () => { highlightConnections(null); creditPreview?.leave(button); });
+      button.addEventListener('focus', () => { highlightConnections(id); creditPreview?.enter(button, { mode: 'focus' }); });
+      button.addEventListener('blur', () => { highlightConnections(null); creditPreview?.leave(button); });
       button.addEventListener('keydown', event => {
         if (!event.shiftKey || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
         event.preventDefault();
@@ -454,6 +462,7 @@ function render() {
   renderLookupFeedback();
   renderTrail();
   savedMapsUI?.refresh();
+  creditPreview?.refresh();
   $('#node-count').textContent = `${String(visibleIds.size).padStart(2, '0')} artists`;
   $('#map-empty-state').hidden = visibleIds.size > 0;
   $('#map-description').textContent = !selected ? 'Search for an artist to begin.' : explorer.isExpanded(selected) ? 'Click artists to explore. Click lines for credits.' : 'One artist. Click their portrait to unfold the connections.';
@@ -539,6 +548,7 @@ function drawMotionFrame() {
     record.trace.setAttribute('d', curve); record.travel.setAttribute('path', curve);
     record.discovery.setAttribute('d', curve);
   });
+  creditPreview?.reposition();
 }
 
 function startElasticMotion() {
@@ -567,6 +577,7 @@ function clearGraphInteraction() {
   stopElasticMotion(); stopCameraAnimation();
   elastic.clear(); targetLayout.clear();
   discoveryFeedback.clear();
+  creditPreview?.dismiss(true);
   focusIntent = null; suppressedClick = null;
 }
 
@@ -820,6 +831,7 @@ function updateCamera() {
   $('#zoom-value').textContent = `${Math.round(zoom*100)}%`;
   $('#zoom-in').disabled = zoom >= MAX_ZOOM;
   $('#zoom-out').disabled = zoom <= MIN_ZOOM;
+  creditPreview?.reposition();
 }
 function stopCameraAnimation() {
   if (cameraFrame !== null) cancelAnimationFrame(cameraFrame);
@@ -827,6 +839,7 @@ function stopCameraAnimation() {
   world.classList.remove('camera-moving');
 }
 function manualCameraIntent() {
+  creditPreview?.dismiss(true);
   cameraRevision++;
   focusIntent = null;
   stopCameraAnimation();
@@ -848,7 +861,7 @@ function animateCamera(target) {
     pan = { x: from.pan.x + (target.pan.x - from.pan.x) * ease, y: from.pan.y + (target.pan.y - from.pan.y) * ease };
     updateCamera();
     if (progress < 1) cameraFrame = requestAnimationFrame(frame);
-    else { cameraFrame = null; cameraTarget = null; world.classList.remove('camera-moving'); }
+    else { cameraFrame = null; cameraTarget = null; world.classList.remove('camera-moving'); creditPreview?.refresh(); }
   };
   cameraFrame = requestAnimationFrame(frame);
 }
@@ -1105,6 +1118,17 @@ $('#sources-button').addEventListener('click',event=>{
 });
 $('.dialog-close').addEventListener('click',()=>dialog.close());
 dialog.addEventListener('click',event=>{if(event.target===dialog){const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close();}});
+creditPreview = createCreditPreview({
+  host: $('#map'),
+  getCredit: id => sharedTrackPreview({ id, route: explorer.routeTo(id), artists, edges, visibleIds: explorer.visibleIds, scope: spotifyView ? 'spotify' : 'main' }),
+  blocked: () => Boolean(nodeDrag || drag || cameraFrame !== null || document.hidden || pathPreview
+    || !$('#search-results').hidden || !$('#map-save-popover').hidden || $('#info-dialog').open),
+  motionAllowed: () => !motionPaused && !motionQuery.matches
+});
+window.addEventListener('scroll', () => creditPreview.dismiss(true), { passive: true });
+window.addEventListener('resize', () => creditPreview.refresh());
+window.addEventListener('blur', () => creditPreview.dismiss(true));
+document.addEventListener('keydown', event => { if (event.key === 'Escape') creditPreview.dismiss(); });
 savedMapsUI = createSavedMapsUI({
   button: $('#save-map-button'), popover: $('#map-save-popover'),
   store: createMapStore({ getStorage: () => window.localStorage, scope: spotifyView ? 'spotify' : 'main' }),
