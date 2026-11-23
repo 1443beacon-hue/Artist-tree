@@ -30,7 +30,7 @@ MusicBrainz remains disabled because the deployment has no distributed rate-limi
 
 **Migration history:** Dashboard SQL execution does not register a CLI migration-history entry. Before a future CLI `db push`, reconcile/mark version `20261123133854` as applied using the supported CLI migration-repair workflow, after linking and verifying this exact project. Do not blindly rerun the CREATE statements or write migration history manually.
 
-## Google setup completed; user sign-in approval pending
+## Google sign-in and cloud-save verification
 
 - Dedicated Google Cloud project created: `artistree-515615` (display name `Artistree`). Existing OAuth clients in `My First Project` were left unchanged. No billing-link or paid-API activation action was performed.
 - The owner completed the policy/branding setup. Web client `Artistree Web` is registered with JavaScript origin `https://artist-tree.vercel.app` and callback `https://vtttqbfdwhmmzlhiissu.supabase.co/auth/v1/callback`.
@@ -38,19 +38,21 @@ MusicBrainz remains disabled because the deployment has no distributed rate-limi
 - Google is enabled in Supabase and `ARTISTREE_AUTH_PROVIDERS=google` is configured for Vercel preview/production. The deployed page exposes Google as available and keeps Kakao/Naver disabled.
 - Audience remains **external/testing**, with the owner's Google account added as a test user. The app has not been published for unrestricted Google-account access.
 - Verified: public auth settings show Google enabled; Supabase authorizes with the expected Google client/callback and only `email profile` scopes; the live site's button reaches the owner's Google account-permission screen.
-- **Not yet verified:** the owner must approve the account-permission screen to complete the first sign-in. Session creation and authenticated cloud tree saving are not claimed as successful yet.
+- The owner completed Google account approval. The live page verified the session and enabled My account storage.
+- Live test snapshot: `Artistree verification 2026-11-23T15:36:58.975Z` (UTC timestamp). Saved five Genius-backed artists, four edges, and a 115% zoom view to the account. Existing browser-map storage remained byte-for-byte unchanged.
+- A separate, newly opened tab started with zero artists, verified the existing sign-in, fetched the account list and snapshot from Supabase (two successful Data API GETs), and restored the same five artist IDs, four edges and 115% zoom. Restoration made zero `/api/connections` requests.
+- The test snapshot was left in the owner's account for inspection. This verifies fresh-page session persistence and actual cloud save/read/restore, not a second physical device or a second user's isolation behavior.
 
 ## Still pending
 
-- Completion of the owner's Google sign-in and authenticated cloud-save tests.
 - Google production audience/branding review before opening login to all users.
 - Kakao developer-app credentials/consent/callback configuration.
 - Naver app credentials and the custom OAuth provider/adapter configuration.
-- Authenticated A/B account isolation and cross-device tree-saving tests.
+- Live second-account negative-access tests and a physically separate-device test; fresh-tab account restore is already verified.
 - Spotify-only OAuth return-context verification.
 - Streamlit wrapper and Community Cloud deployment.
 
-Only Google is currently enabled, in testing mode. Successful deployment, redirect and database checks are **not** proof of completed social login or authenticated cloud saving. See [AUTH_SETUP.md](AUTH_SETUP.md).
+Only Google is currently enabled, in testing mode. Google sign-in and authenticated cloud save/restore are live-tested for the configured owner account; this does not certify Kakao/Naver, unrestricted Google access, or every multi-user security scenario. See [AUTH_SETUP.md](AUTH_SETUP.md).
 
 ## Rollback
 
