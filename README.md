@@ -1,5 +1,7 @@
 # Artistree — personal music explorer
 
+**Live:** https://artist-tree.vercel.app/ · [Deployment status](DEPLOYMENT.md). Social-provider setup is still pending; guest exploration and browser saving are available.
+
 A Node.js app for exploring music through people and source-linked credits. English UI, Helvetica-first typography, circular nodes, off-white / blue styling, optional graph animations, and optional account-based tree saving.
 
 ## Run locally
@@ -100,7 +102,7 @@ Artist IDs are `apple:ID`, `spotify:ID`, `genius:ID`, or `musicbrainz:UUID`. Spo
 - `account-session.js`, `account-ui.js`: optional Google/Kakao/Naver login, PKCE callback cleanup, verified-user UI, login drafts, safe redirects and full-site sign-in from embeds.
 - `cloud-maps.js`: owner/view-scoped Supabase access using the existing snapshot whitelist and account-switch guards.
 - `api/auth-config.mjs`, `api/naver-auth.mjs`: public-only configuration and a bounded, encrypted-state Naver OAuth adapter; no Supabase service-role key is used.
-- `supabase/migrations/`: owner-protected, immutable saved trees and server-enforced limits. No remote migration is implied.
+- `supabase/migrations/`: owner-protected, immutable saved trees and server-enforced limits. The dedicated project's applied version and Dashboard/CLI history caveat are recorded in `DEPLOYMENT.md`.
 - `data/genius-artist-chart.json`: manually checked daily chart snapshot; see `API_SETUP.md` for replacement and expiry rules.
 - `artist-identity.js`: shared verified provider-ID and artist-page URL matching.
 - `live-client.js`: local API client, verified identity matching, and stable positioning for new nodes.
