@@ -6,10 +6,10 @@ Updated: 2026-11-24.
 
 - Public URL: https://artist-tree.vercel.app/
 - Vercel project: `industial-strength/artist-tree` (existing Hobby project).
-- Deployed source: `0fcb8c6`, from `feat/vercel-streamlit-deploy` (runtime implementation checkpoint `6d814c7`).
-- Verified preview: `https://artist-tree-bbmuwr8ad-industial-strength.vercel.app`.
-- Production promotion: https://vercel.com/industial-strength/artist-tree/FGkTBHVmiHMLZYSD8wxJwAAsujuH
-- Google-enabled production deployment: https://vercel.com/industial-strength/artist-tree/8a5YfhFjuqKLgu9sUpc3vy3MFy6D
+- Deployed source: `f4e68a8`, from `feat/mobile-credit-preview` (includes the previously verified account implementation).
+- Verified preview: `https://artist-tree-7lc3ylawu-industial-strength.vercel.app` (authenticated Vercel CLI checks; preview protection retained).
+- Mobile-enabled production deployment: https://vercel.com/industial-strength/artist-tree/8Brj9tyyxDQsgvocUvB7cKESSSUe
+- Previous Google-enabled production deployment: https://vercel.com/industial-strength/artist-tree/8a5YfhFjuqKLgu9sUpc3vy3MFy6D
 - `main` and its Git integration were not changed. A future push to `main` can deploy that branch's older implementation; merge/review deployment work before doing so.
 
 Verified on Vercel: frontend/API return 200, live Bladee search, progressive Genius expansion revealing four new people, disabled MusicBrainz, and 404 responses for environment files, private server modules, package metadata, and presentation files.
@@ -50,6 +50,7 @@ MusicBrainz remains disabled because the deployment has no distributed rate-limi
 - Local verification: **191 tests passed**, `npm run check`, and `npm run build:vercel` passed. Chromium at 375×760 used real Genius-backed Bladee/Loesoe credits: holding opened “Hotel Breakfast” with Bladee as the recorded parent, release/click was suppressed with the graph unchanged at five artists, short tap expanded, the selected-node button opened the same credit, and Close/outside dismissal worked. No player existed before explicit Open preview; the resulting source-linked YouTube URL had no autoplay parameter.
 - The held root showed “No shared track yet” with no preview action. The sheet also fit a 320×400 layout without horizontal overflow. Desktop focus still opened the ordinary non-touch card. Gesture cancellation/multitouch and existing saving/security behavior are covered by automated tests.
 - These are Chromium layout/synthetic-pointer checks, **not physical iPhone Safari or Android Chrome certification**. Native image callouts and OS gestures still need checks on those devices.
+- Deployed and verified on the canonical production address: at 375×660, a live Bladee branch opened “I’m Goofy” with recorded parent `genius:83959`; releasing/ghost-click left the five-node graph unchanged, created no players, and left browser-save bytes unchanged. Browser console had no errors. Public frontend/new module returned 200, private files returned 404, and auth config still exposed only Google as enabled. Preview checks also verified live search and the new module.
 
 ## Still pending
 
@@ -64,4 +65,4 @@ Only Google is currently enabled, in testing mode. Google sign-in and authentica
 
 ## Rollback
 
-The stable code checkpoint remains `checkpoint-explorer-v5` (`925ac08`); the preconfiguration implementation is `checkpoint-auth-preconfiguration` (`6d814c7`). Vercel retains previous deployments. Restoring a deployment does not roll back the database or migrate browser saves; never delete user trees as a deployment rollback step.
+The stable code checkpoint remains `checkpoint-explorer-v5` (`925ac08`); the preconfiguration implementation is `checkpoint-auth-preconfiguration` (`6d814c7`). The pushed `checkpoint-mobile-credit-base` (`3f4919b`) preserves the verified Google/account version before mobile changes. Vercel retains previous deployments. Restoring a deployment does not roll back the database or migrate browser saves; never delete user trees as a deployment rollback step.
