@@ -382,6 +382,30 @@ nav.exploration-path { height: auto; min-width: 0; gap: 15px; padding: 10px 24px
 .credit-preview-play { flex-shrink: 0; margin-top: 11px; padding: 8px 10px; border-radius: 6px; background: #edf0fc; color: #5269b5; text-align: left; font-size: 10px; }
 .credit-preview-play:hover { background: #e1e7fa; color: #3155e7; }
 .credit-preview-play[hidden] { display: none; }
+.credit-preview-close { position: absolute; right: 8px; top: 7px; min-width: 36px; min-height: 36px; font-size: 23px; line-height: 1; color: #78866b; }
+.credit-preview-close[hidden] { display: none; }
+.credit-preview.is-touch {
+  z-index: 35; border-radius: 16px; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+  padding: 18px 18px calc(16px + env(safe-area-inset-bottom, 0px));
+  background: #fcfcf8; box-shadow: 0 10px 45px #26301d25;
+}
+.credit-preview.is-touch.is-visible { pointer-events: auto; }
+.credit-preview.is-touch .credit-preview-eyebrow { padding-right: 36px; }
+.credit-preview.is-touch .credit-preview-play { min-height: 42px; padding: 11px; }
+.node-track-info {
+  position: absolute; z-index: 12; min-height: 36px; padding: 7px 10px; border-radius: 18px;
+  border: 1px solid #cfd9f2; background: #f7f9ff; color: #5269b5; font-size: 10px; white-space: nowrap;
+  box-shadow: 0 3px 10px #26301d12; touch-action: manipulation;
+}
+.node-track-info[hidden] { display: none; }
+.node-track-info::before { content: ''; position: absolute; inset: -4px; }
+/* Suppress native image callouts only on graph nodes, not links or page zoom. */
+.map .node, .map .node * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.map .node-photo img { pointer-events: none; -webkit-user-drag: none; }
+.map.touch-credit-input .node:hover:not(:focus-visible) .node-photo { transform: none; }
+@media (hover: none) {
+  .map .node:hover:not(:focus-visible) .node-photo { transform: none; }
+}
 .credit-preview-eyebrow { display: block; flex-shrink: 0; color: #7088d4; font-size: 7px; font-weight: 500; letter-spacing: 1.2px; margin-bottom: 9px; }
 .credit-preview-title { display: -webkit-box; flex-shrink: 0; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; color: #2b3424; font-size: 15px; font-weight: 500; letter-spacing: -.35px; line-height: 1.3; }
 .credit-preview-summary { flex-shrink: 0; margin: 7px 0 9px; color: #89927d; font-size: 9px; line-height: 1.4; }

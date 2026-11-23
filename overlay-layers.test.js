@@ -40,3 +40,13 @@ test('hidden/fading credit cards are click-through and stay below search and too
   assert.ok(Number(card['z-index']) < Number(declarations('.explorer-toolbar')['z-index']));
   assert.ok(Number(card['z-index']) < Number(declarations('.search-results')['z-index']));
 });
+
+test('touch sheets sit above the toolbar but below search, while native image prevention stays local to graph portraits', () => {
+  const sheet = declarations('.credit-preview.is-touch');
+  assert.ok(Number(sheet['z-index']) > Number(declarations('.explorer-toolbar')['z-index']));
+  assert.ok(Number(sheet['z-index']) < Number(declarations('.search-results')['z-index']));
+  assert.equal(sheet['overflow-y'], 'auto');
+  assert.equal(declarations('.map .node-photo img')['pointer-events'], 'none');
+  assert.equal(declarations('.map .node, .map .node *')['-webkit-touch-callout'], 'none');
+  assert.equal(declarations('.node-track-info').position, 'absolute', 'the action remains outside scaled portraits');
+});

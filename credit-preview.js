@@ -131,10 +131,14 @@ export function createCreditPreview({ host, getCredit, onChange = () => {}, onSe
   play.hidden = !onSelect;
   play.title = 'Open the official player. Shortcut: P while the artist is focused.';
   element.append(play);
+  const close = doc.createElement('button');
+  close.type = 'button'; close.className = 'credit-preview-close'; close.textContent = '×'; close.hidden = true;
+  close.setAttribute('aria-label', 'Close track information'); element.append(close);
   let active = null, showTimer = null, hideTimer = null, exitTimer = null, signature = '', published = '', obstacles = [];
   let displayedPeople = [], displayedArtist = '', fitSignature = '';
   const renderParticipants = limit => {
     participants.replaceChildren();
+    if (!displayedPeople.length) return;
     const shown = displayedPeople.slice(0, limit);
     if (!shown.some(person => person.id === displayedArtist)) shown[shown.length - 1] = displayedPeople.find(person => person.id === displayedArtist);
     for (const person of shown.filter(Boolean)) {
@@ -183,6 +187,12 @@ export function createCreditPreview({ host, getCredit, onChange = () => {}, onSe
     if (!credit) { dismiss(true); return false; }
     dismiss(true); onSelect(credit); return true;
   };
+  const closeAndFocus = () => {
+    const target = active?.trigger || active?.node;
+    dismiss(true); target?.focus?.({ preventScroll: true });
+    dismiss(true); // Restoring node focus must not reopen its desktop tooltip.
+  };
+  close.addEventListener('click', closeAndFocus);
   const queueExit = () => {
     stopTimer('exit');
     if (!active) return;
@@ -201,14 +211,16 @@ export function createCreditPreview({ host, getCredit, onChange = () => {}, onSe
       if (active) { stopTimer('exit'); active.overCard = true; active.travel = false; }
     });
     element.addEventListener('pointerleave', () => {
+      if (active?.mode === 'touch') return;
       if (active) { active.overCard = false; queueExit(); }
     });
     element.addEventListener('focusin', () => stopTimer('exit'));
     element.addEventListener('focusout', event => {
+      if (active?.mode === 'touch') return;
       if (!element.contains(event.relatedTarget)) queueExit();
     });
     element.addEventListener('keydown', event => {
-      if (event.key === 'Escape') { const node = active?.node; dismiss(); node?.focus?.({ preventScroll: true }); }
+      if (event.key === 'Escape') { event.preventDefault?.(); event.stopPropagation?.(); closeAndFocus(); }
     });
   }
   const stillOver = () => {
@@ -220,6 +232,19 @@ export function createCreditPreview({ host, getCredit, onChange = () => {}, onSe
   const reposition = () => {
     if (element.hidden || !active) return;
     if (blocked() || !stillOver()) { dismiss(true); return; }
+    if (active.mode === 'touch') {
+      const viewport = view.visualViewport;
+      const width = viewport?.width || view.innerWidth, height = viewport?.height || view.innerHeight;
+      if (width < 180 || height < 170) { conceal(true); return; }
+      element.style.width = `${Math.min(440, width - 24)}px`;
+      element.style.maxHeight = `${Math.min(360, height - 24)}px`;
+      renderParticipants(Math.min(6, displayedPeople.length));
+      const measured = element.getBoundingClientRect();
+      element.style.left = `${(viewport?.offsetLeft || 0) + (width - Math.min(440, width - 24)) / 2}px`;
+      element.style.top = `${(viewport?.offsetTop || 0) + height - Math.min(measured.height, height - 24) - 12}px`;
+      element.dataset.placement = 'sheet';
+      return;
+    }
     if (typeof active.node.getBoundingClientRect !== 'function') return;
     const map = host.getBoundingClientRect(), pad = 10;
     const bounds = { left: Math.max(pad, map.left + pad), top: Math.max(pad, map.top + pad),
@@ -251,21 +276,23 @@ export function createCreditPreview({ host, getCredit, onChange = () => {}, onSe
     if (!active || !stillOver()) { dismiss(true); return; }
     if (blocked()) { conceal(true); return; }
     const credit = getCredit(active.node.dataset.artist);
-    if (!credit) { conceal(); return; }
+    if (!credit && active.mode !== 'touch') { conceal(); return; }
     stopTimer('hide');
-    const key = JSON.stringify(credit);
+    const key = credit ? JSON.stringify(credit) : `unavailable:${active.node.dataset.artist}`;
     if (signature !== key) {
-      title.textContent = credit.title;
-      displayedPeople = credit.participants || [{ id: credit.parentId, name: credit.parentName }, { id: credit.artistId, name: credit.artistName }];
-      displayedArtist = credit.artistId;
-      summary.textContent = `${displayedPeople.length} credited artists on this map`;
+      title.textContent = credit?.title || 'No shared track yet';
+      displayedPeople = credit ? credit.participants || [{ id: credit.parentId, name: credit.parentName }, { id: credit.artistId, name: credit.artistName }] : [];
+      displayedArtist = credit?.artistId || active.node.dataset.artist;
+      summary.textContent = credit ? `${displayedPeople.length} credited artists on this map`
+        : 'No verified shared recording with this artist’s branch parent is available. Tap a portrait to explore connections.';
       // Keep a dense map's tooltip bounded; every verified member is still
       // highlighted in the graph, even when its name does not fit the card.
       fitSignature = '';
-      meta.textContent = `${credit.source} · Track credits`;
-      play.setAttribute('aria-label', `Open official preview for ${credit.title}`);
-      element.dataset.parentId = credit.parentId; element.dataset.artistId = credit.artistId;
-      element.dataset.trackKey = credit.trackKey || '';
+      meta.textContent = credit ? `${credit.source} · Track credits` : 'Only source-backed recording credits are shown.';
+      play.hidden = !credit || !onSelect;
+      play.setAttribute('aria-label', credit ? `Open official preview for ${credit.title}` : 'No official preview available');
+      element.dataset.parentId = credit?.parentId || ''; element.dataset.artistId = displayedArtist;
+      element.dataset.trackKey = credit?.trackKey || '';
       signature = key;
     }
     element.hidden = false;
@@ -288,11 +315,29 @@ export function createCreditPreview({ host, getCredit, onChange = () => {}, onSe
   };
   return {
     enter(node, { mode = 'pointer', point = null } = {}) {
+      if (active?.mode === 'touch') return;
+      element.classList.remove('is-touch'); close.hidden = true;
+      element.setAttribute('role', onSelect ? 'region' : 'tooltip');
       conceal(true); active = { node, mode, point }; refresh();
     },
+    open(node, { trigger = node } = {}) {
+      if (!node || !host.contains(node) || blocked()) return false;
+      conceal(true); active = { node, mode: 'touch', trigger };
+      element.classList.add('is-touch'); close.hidden = false;
+      element.setAttribute('role', 'dialog');
+      element.setAttribute('aria-label', 'Shared track information');
+      show();
+      if (!element.hidden) close.focus?.({ preventScroll: true });
+      return !element.hidden;
+    },
+    canPreview(node) { return Boolean(node && host.contains(node) && getCredit(node.dataset.artist)); },
+    isOpenFor(node) { return Boolean(node && active?.node === node && active.mode === 'touch'
+      && !element.hidden && element.classList.contains('is-visible')); },
+    contains(node) { return element.contains(node); },
     move(node, point) { if (active?.node === node && active.mode === 'pointer') active.point = point; },
     leave(node, { bridge = false } = {}) {
       if (active?.node !== node) return;
+      if (active.mode === 'touch') return;
       if (onSelect && (bridge || element.contains(doc.activeElement))) queueExit();
       else dismiss();
     },

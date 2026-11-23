@@ -12,6 +12,7 @@ import { createTrackPlayer } from './track-player.js';
 import { createAccount } from './account-session.js';
 import { createAccountUI } from './account-ui.js';
 import { createCloudMapStore } from './cloud-maps.js';
+import { createTouchCredits } from './touch-credit.js';
 
 const suggestions = ['Tohji', 'Bladee', 'Yung Lean', 'Lucy Bedroque', 'prettifun'];
 const artists = Object.create(null);
@@ -56,7 +57,7 @@ let cameraFrame = null, cameraTarget = null;
 let cameraRevision = 0, focusIntent = null;
 let nodeDrag = null, suppressedClick = null;
 let drag = null;
-let savedMapsUI, creditPreview, pathPreview = null, trailSignature = '';
+let savedMapsUI, creditPreview, touchCredits, pathPreview = null, trailSignature = '';
 let creditGroup = null;
 let selectedTrack = null, trackPlayer;
 const elasticEnabled = () => !spotifyView && !motionPaused && !motionQuery.matches && !document.hidden;
@@ -420,6 +421,7 @@ function render() {
     if (!button) {
       button = document.createElement('button');
       button.className = 'node';
+      button.draggable = false;
       button.dataset.artist = id;
       const index = Object.keys(artists).indexOf(id);
       const source = artists[selected];
@@ -430,7 +432,7 @@ function render() {
       orbit.className = 'node-orbit';
       const photo = document.createElement('span');
       photo.className = 'node-photo';
-      photo.append(portrait(artist, ''));
+      const image = portrait(artist, ''); image.draggable = false; photo.append(image);
       const shade = document.createElement('span');
       shade.className = 'node-shade'; shade.setAttribute('aria-hidden', 'true');
       photo.append(shade);
@@ -452,7 +454,7 @@ function render() {
       });
       button.addEventListener('pointermove', event => creditPreview?.move(button, { x: event.clientX, y: event.clientY }));
       button.addEventListener('pointerleave', () => { highlightConnections(null); creditPreview?.leave(button, { bridge: true }); });
-      button.addEventListener('focus', () => { highlightConnections(id); creditPreview?.enter(button, { mode: 'focus' }); });
+      button.addEventListener('focus', () => { highlightConnections(id); if (!touchCredits?.touchInput()) creditPreview?.enter(button, { mode: 'focus' }); });
       button.addEventListener('blur', () => { highlightConnections(null); creditPreview?.leave(button, { bridge: true }); });
       button.addEventListener('keydown', event => {
         if ((event.key || '').toLowerCase() === 'p' && !event.ctrlKey && !event.metaKey && !event.altKey) {
@@ -479,7 +481,7 @@ function render() {
     const shown = photo.querySelector('img, .initials');
     if (button.dataset.image !== (artist.image || '')) {
       shown?.remove();
-      photo.prepend(portrait(artist, ''));
+      const image = portrait(artist, ''); image.draggable = false; photo.prepend(image);
       button.dataset.image = artist.image || '';
     }
     button.querySelector('.node-name').textContent = artist.name;
@@ -506,6 +508,7 @@ function render() {
   renderTrail();
   savedMapsUI?.refresh();
   creditPreview?.refresh();
+  touchCredits?.refresh();
   $('#node-count').textContent = `${String(visibleIds.size).padStart(2, '0')} artists`;
   $('#map-empty-state').hidden = visibleIds.size > 0;
   $('#map-description').textContent = !selected ? 'Search for an artist to begin.' : explorer.isExpanded(selected) ? 'Click artists to explore. Click lines for credits.' : 'One artist. Click their portrait to unfold the connections.';
@@ -592,6 +595,7 @@ function drawMotionFrame() {
     record.discovery.setAttribute('d', curve);
   });
   creditPreview?.reposition();
+  touchCredits?.refresh();
 }
 
 function startElasticMotion() {
@@ -616,6 +620,7 @@ function stopElasticMotion() {
 }
 
 function clearGraphInteraction() {
+  touchCredits?.cancel();
   clearSelectedTrack();
   finishNodeDrag(true);
   stopElasticMotion(); stopCameraAnimation();
@@ -887,13 +892,15 @@ function updateCamera() {
   $('#zoom-in').disabled = zoom >= MAX_ZOOM;
   $('#zoom-out').disabled = zoom <= MIN_ZOOM;
   creditPreview?.reposition();
+  touchCredits?.refresh();
 }
 function stopCameraAnimation() {
   if (cameraFrame !== null) cancelAnimationFrame(cameraFrame);
   cameraFrame = null; cameraTarget = null;
   world.classList.remove('camera-moving');
 }
-function manualCameraIntent() {
+function manualCameraIntent({ preserveHold = false } = {}) {
+  if (!preserveHold) touchCredits?.cancel();
   creditPreview?.dismiss(true);
   cameraRevision++;
   focusIntent = null;
@@ -991,7 +998,7 @@ $('#map').addEventListener('pointerdown', event => {
   if (event.button !== 0 || event.isPrimary === false || drag || nodeDrag) return;
   const button = event.target.closest('#nodes .node');
   if (button) {
-    manualCameraIntent();
+    manualCameraIntent({ preserveHold: event.pointerType === 'touch' });
     const id = button.dataset.artist;
     const pointer = graphPointer(event), point = elastic.position(id);
     if (!point) return;
@@ -1180,11 +1187,17 @@ trackPlayer = createTrackPlayer({
 creditPreview = createCreditPreview({
   host: $('#map'),
   getCredit: id => sharedTrackPreview({ id, route: explorer.routeTo(id), artists, edges, visibleIds: explorer.visibleIds, scope: spotifyView ? 'spotify' : 'main' }),
-  onChange: credit => { creditGroup = credit; applyCreditGroup(); },
+  onChange: credit => { creditGroup = credit; applyCreditGroup(); touchCredits?.refresh(); },
   onSelect: openTrackPanel,
   blocked: () => Boolean(nodeDrag || drag || cameraFrame !== null || document.hidden || pathPreview
     || !$('#search-results').hidden || !$('#map-save-popover').hidden || $('#info-dialog').open || $('#account-dialog').open),
   motionAllowed: () => !motionPaused && !motionQuery.matches
+});
+touchCredits = createTouchCredits({
+  host: $('#map'), preview: creditPreview,
+  selectedNode: () => [...$('#nodes').children].find(node => node.dataset.artist === explorer.selected),
+  beforeOpen: () => { finishNodeDrag(true); stopCameraAnimation(); cameraRevision++; focusIntent = null; previewPath(); },
+  announce: message => { $('#graph-announcement').textContent = message; }
 });
 window.addEventListener('scroll', () => creditPreview.reposition(), { passive: true });
 window.addEventListener('resize', () => creditPreview.refresh());

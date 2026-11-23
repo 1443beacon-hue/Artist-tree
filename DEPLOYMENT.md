@@ -43,6 +43,14 @@ MusicBrainz remains disabled because the deployment has no distributed rate-limi
 - A separate, newly opened tab started with zero artists, verified the existing sign-in, fetched the account list and snapshot from Supabase (two successful Data API GETs), and restored the same five artist IDs, four edges and 115% zoom. Restoration made zero `/api/connections` requests.
 - The test snapshot was left in the owner's account for inspection. This verifies fresh-page session persistence and actual cloud save/read/restore, not a second physical device or a second user's isolation behavior.
 
+## Mobile shared-track controls
+
+- Work branch: `feat/mobile-credit-preview`; rollback code tag: `checkpoint-mobile-credit-base` (`3f4919b`).
+- Adds a 400ms touch hold, selected-branch **♫ Track info** action, persistent nonmodal bottom information sheet, local portrait callout protection, and a truthful missing-credit state. Existing click-to-expand, desktop cards, recording identity, saved snapshots, and explicit playback rules remain unchanged.
+- Local verification: **191 tests passed**, `npm run check`, and `npm run build:vercel` passed. Chromium at 375×760 used real Genius-backed Bladee/Loesoe credits: holding opened “Hotel Breakfast” with Bladee as the recorded parent, release/click was suppressed with the graph unchanged at five artists, short tap expanded, the selected-node button opened the same credit, and Close/outside dismissal worked. No player existed before explicit Open preview; the resulting source-linked YouTube URL had no autoplay parameter.
+- The held root showed “No shared track yet” with no preview action. The sheet also fit a 320×400 layout without horizontal overflow. Desktop focus still opened the ordinary non-touch card. Gesture cancellation/multitouch and existing saving/security behavior are covered by automated tests.
+- These are Chromium layout/synthetic-pointer checks, **not physical iPhone Safari or Android Chrome certification**. Native image callouts and OS gestures still need checks on those devices.
+
 ## Still pending
 
 - Google production audience/branding review before opening login to all users.

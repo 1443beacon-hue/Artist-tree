@@ -181,3 +181,48 @@ test('only explicit card activation opens the player, and context cancellation c
   assert.equal(f.controller.activate(f.node), false, 'removed targets cannot replay stale selections');
   f.controller.destroy();
 });
+
+test('touch information opens immediately as a persistent bottom sheet, never selecting or playing a track', () => {
+  const f = fixture({ interactive: true });
+  assert.equal(f.controller.open(f.node), true);
+  assert.equal(f.card.getAttribute('role'), 'dialog');
+  assert.equal(f.card.dataset.placement, 'sheet');
+  assert.equal(f.child('credit-preview-close').hidden, false);
+  assert.equal(f.selections.length, 0); assert.equal(f.timers.size, 0);
+  f.controller.leave(f.node, { bridge: true });
+  f.doc.elementFromPoint = () => f.host;
+  f.controller.reposition();
+  assert.equal(f.card.hidden, false, 'lifting the finger or leaving the node must not dismiss the sheet');
+  f.controller.enter(f.node); assert.equal(f.card.dataset.placement, 'sheet', 'synthetic hover cannot replace touch mode');
+  f.child('credit-preview-play').listeners.click();
+  assert.equal(f.selections.length, 1);
+  assert.equal(f.card.hidden, true); f.controller.destroy();
+});
+
+test('missing touch credits show an honest, closable fallback without recording metadata or playback', () => {
+  const f = fixture({ interactive: true }); f.setCredit(null);
+  assert.equal(f.controller.canPreview(f.node), false);
+  assert.equal(f.controller.open(f.node), true);
+  assert.equal(f.child('credit-preview-title').textContent, 'No shared track yet');
+  assert.equal(f.child('credit-preview-play').hidden, true);
+  assert.equal(f.card.dataset.trackKey, '');
+  assert.equal(f.changes.length, 0); assert.equal(f.selections.length, 0);
+  f.child('credit-preview-close').listeners.click();
+  assert.equal(f.card.hidden, true); assert.equal(f.doc.activeElement, f.node);
+  f.controller.destroy();
+});
+
+test('touch sheets obey blocked/removed contexts, fit small visual viewports, and clear old highlight state', () => {
+  const f = fixture({ interactive: true });
+  f.doc.defaultView.visualViewport = { width: 320, height: 260, offsetTop: 20, offsetLeft: 0 };
+  f.controller.open(f.node);
+  assert.equal(f.card.style.width, '296px');
+  assert.equal(f.card.style.maxHeight, '236px');
+  assert.equal(f.controller.isOpenFor(f.node), true);
+  f.setBlocked(true); f.controller.reposition();
+  assert.equal(f.card.hidden, true); assert.equal(f.changes.at(-1), null);
+  assert.equal(f.controller.open(f.node), false);
+  f.setBlocked(false); f.node.remove();
+  assert.equal(f.controller.open(f.node), false);
+  f.controller.destroy();
+});
