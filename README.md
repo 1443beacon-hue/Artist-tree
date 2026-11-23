@@ -1,6 +1,6 @@
 # Artistree — personal music explorer
 
-**Live:** https://artist-tree.vercel.app/ · [Deployment status](DEPLOYMENT.md). Social-provider setup is still pending; guest exploration and browser saving are available.
+**Live:** https://artist-tree.vercel.app/ · [Deployment status](DEPLOYMENT.md). Google is connected in testing mode; first-sign-in/cloud-save verification and Kakao/Naver setup remain pending. Guest exploration and browser saving are available.
 
 A Node.js app for exploring music through people and source-linked credits. English UI, Helvetica-first typography, circular nodes, off-white / blue styling, optional graph animations, and optional account-based tree saving.
 

@@ -5,6 +5,7 @@
 - Google / Kakao 기본 Supabase OAuth, Naver용 서버 어댑터, 계정별 저장 UI와 SQL을 구현했습니다.
 - 전용 프로젝트 `vtttqbfdwhmmzlhiissu`에 저장용 테이블/RLS를 적용하고, https://artist-tree.vercel.app/ 에 기본 배포했습니다. 로그인 복귀 주소도 저장했습니다.
 - **소셜 개발자 앱 등록과 실제 계정 로그인/클라우드 저장 검증은 아직 진행 중입니다.** 완료한 배포·DB 검증과 남은 항목은 [DEPLOYMENT.md](DEPLOYMENT.md)를 참고하세요.
+- Google 웹 클라이언트와 Supabase 연결 및 배포를 완료했습니다. 현재 Google 앱은 외부/테스트 모드이며, 소유자 계정의 정보 제공 승인과 클라우드 저장 검증이 남아 있습니다. Kakao/Naver는 아직 비활성입니다.
 - 기존에 연결된 다른 앱의 Supabase 프로젝트는 수정하지 않습니다. 기존 브라우저 저장 키도 바꾸지 않습니다.
 - 비용이 드는 프로젝트·서비스·업그레이드는 자동으로 만들지 않습니다.
 
