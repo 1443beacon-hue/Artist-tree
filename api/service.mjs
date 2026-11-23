@@ -57,7 +57,7 @@ function sameUrl(a, b) {
   return a && b && a.replace(/\/$/, '').toLowerCase() === b.replace(/\/$/, '').toLowerCase();
 }
 
-export function createMusicService(providers, { now = Date.now } = {}) {
+export function createMusicService(providers, { now = Date.now, retain = () => {} } = {}) {
   const registry = createRegistry();
   const jobs = new Map();
   const status = () => Object.values(providers).map(provider => provider.status());
@@ -152,7 +152,7 @@ export function createMusicService(providers, { now = Date.now } = {}) {
     // Known IDs can return credits immediately; identity enrichment must not
     // stand between an authenticated source and the first visible connections.
     launchSources();
-    if (!job.spotify && !root.providerIds.musicbrainz) {
+    if (!job.spotify && providers.musicbrainz.configured && !root.providerIds.musicbrainz) {
       try {
         const verified = await providers.musicbrainz.matchExternal(root);
         if (verified) root = identities.register(verified);
@@ -277,6 +277,7 @@ export function createMusicService(providers, { now = Date.now } = {}) {
   async function streamConnections(id, options, emit, signal) {
     const job = connectionJob(id, options.name || '');
     continueJob(job, options.offset || 0);
+    retain(job.promise);
     const update = () => { if (job.data && !job.error && !signal?.aborted) emit(connectionPage(job, options)); };
     job.listeners.add(update);
     let abort;

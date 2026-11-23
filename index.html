@@ -13,7 +13,7 @@
 <body>
   <header class="site-header">
     <a href="./" class="brand" aria-label="Artistree home"><svg viewBox="0 0 30 30" fill="none" aria-hidden="true"><path d="M7 21 15 7l9 14H7Zm8-14v19M7 21l17-7" stroke="currentColor" stroke-width="1.5"/><circle cx="15" cy="7" r="3" fill="currentColor"/><circle cx="7" cy="21" r="3" fill="currentColor"/><circle cx="24" cy="21" r="3" fill="currentColor"/></svg>artistree<span class="brand-period">.</span></a>
-    <nav aria-label="Main navigation"><a href="#explore" class="nav-active">Discover<span></span></a><button id="about-button">The idea <span aria-hidden="true">↗</span></button></nav>
+    <nav aria-label="Main navigation"><a href="#explore" class="nav-active">Discover<span></span></a><button id="about-button">The idea <span aria-hidden="true">↗</span></button><button id="account-button" type="button" class="account-button" aria-haspopup="dialog" aria-controls="account-dialog">Sign in</button></nav>
     <div class="edition"><span class="status-dot"></span> AN EXPERIMENT IN MUSIC DISCOVERY <span class="preview-badge">PERSONAL BETA</span></div>
   </header>
 
@@ -45,5 +45,18 @@
   </main>
 
   <dialog id="info-dialog"><button class="dialog-close" aria-label="Close dialog">×</button><div id="dialog-content"></div></dialog>
+  <dialog id="account-dialog" aria-labelledby="account-title">
+    <button id="close-account" class="dialog-close" type="button" aria-label="Close account">×</button>
+    <p class="eyebrow">YOUR OWN MUSICAL WORLD</p><h2 id="account-title">Keep your connections.</h2>
+    <p id="account-identity"></p>
+    <div class="social-providers">
+      <button type="button" data-auth-provider="google" disabled>Continue with Google</button>
+      <button type="button" data-auth-provider="kakao" disabled>Continue with Kakao</button>
+      <button type="button" data-auth-provider="naver" disabled>Continue with Naver</button>
+    </div>
+    <a id="account-full-site" class="account-full-site" target="_blank" rel="noopener noreferrer" hidden>Open full Artistree site ↗</a>
+    <button id="account-sign-out" type="button" hidden>Sign out on this browser</button>
+    <p id="account-setup-note"></p><p id="account-status" role="status" aria-live="polite"></p>
+  </dialog>
 </body>
 </html>

@@ -438,3 +438,31 @@ nav.exploration-path { height: auto; min-width: 0; gap: 15px; padding: 10px 24px
 @media (max-width: 760px) {
   .artist-panel:has(.track-panel) { display: block; max-height: 620px; scroll-margin-top: 12px; }
 }
+
+/* Accounts are optional; Save keeps its compact graph-toolbar footprint. */
+.site-header nav .account-button { border: 1px solid #d8dfec; border-radius: 6px; padding: 8px 12px; color: var(--blue); white-space: nowrap; }
+#account-dialog { width: min(430px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; }
+#account-dialog h2 { font-size: 32px; letter-spacing: -1.2px; }
+#account-dialog p { overflow-wrap: anywhere; }
+.social-providers { display: grid; gap: 9px; margin: 22px 0; }
+.social-providers button { padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: #fff; font-size: 12px; }
+.social-providers button[data-auth-provider='kakao'] { background: #fee500; border-color: #e7d300; color: #191919; }
+.social-providers button[data-auth-provider='naver'] { background: #03c75a; border-color: #03b552; color: #fff; }
+.social-providers button:disabled { opacity: .5; }
+.social-providers button[hidden], #account-dialog [hidden] { display: none; }
+#account-setup-note, #account-status { font-size: 11px; line-height: 1.7; color: #737b69; }
+#account-sign-out, .account-full-site { display: inline-block; padding: 9px 0; font-size: 12px; color: var(--blue); }
+.map-storage-choices { display: flex; gap: 5px; margin: 3px 0 14px; padding: 4px; background: #edf0e6; border-radius: 7px; }
+.map-storage-choices button { flex: 1; border-radius: 5px; padding: 7px 5px; font-size: 10px; }
+.map-storage-choices button[aria-pressed='true'] { color: var(--blue); background: #fff; box-shadow: 0 1px 4px #28351a0b; }
+#saved-map-list li:has(.saved-map-import) { flex-wrap: wrap; }
+.saved-map-import { flex-basis: 100%; text-align: left; color: var(--blue); padding: 0 0 6px; font-size: 9px; }
+@media (max-width: 760px) {
+  .site-header { gap: 18px; }
+  .site-header nav { margin-left: auto; gap: 15px; }
+  .site-header nav .account-button { padding: 7px 8px; font-size: 11px; }
+}
+@media (max-width: 360px) {
+  .site-header nav { gap: 10px; }
+  .site-header nav #about-button { display: none; }
+}

@@ -9,6 +9,9 @@ import { createMapStore, validateSavedMap } from './saved-maps.js';
 import { createSavedMapsUI } from './saved-maps-ui.js';
 import { sharedTrackPreview, recordingGroup, createCreditPreview } from './credit-preview.js';
 import { createTrackPlayer } from './track-player.js';
+import { createAccount } from './account-session.js';
+import { createAccountUI } from './account-ui.js';
+import { createCloudMapStore } from './cloud-maps.js';
 
 const suggestions = ['Tohji', 'Bladee', 'Yung Lean', 'Lucy Bedroque', 'prettifun'];
 const artists = Object.create(null);
@@ -1142,7 +1145,7 @@ input.addEventListener('input', () => {
 $('.search').addEventListener('submit',event=>{event.preventDefault();$('#search-results button')?.click();});
 input.addEventListener('keydown',event=>{if(event.key==='Escape')closeSearch();if(event.key==='ArrowDown'){$('#search-results button')?.focus();event.preventDefault();}});
 document.addEventListener('click', event=>{if(!event.target.closest('.search,.seed-button'))closeSearch();});
-document.addEventListener('keydown',event=>{if(event.key==='/'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!['INPUT','TEXTAREA'].includes(document.activeElement.tagName)&&!$('#info-dialog').open){event.preventDefault();input.focus();}});
+document.addEventListener('keydown',event=>{if(event.key==='/'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!['INPUT','TEXTAREA'].includes(document.activeElement.tagName)&&!$('#info-dialog').open&&!$('#account-dialog').open){event.preventDefault();input.focus();}});
 
 const dialog=$('#info-dialog');
 $('#about-button').addEventListener('click',()=>{
@@ -1168,7 +1171,7 @@ $('#sources-button').addEventListener('click',event=>{
   if (!apiStatus.length) { const note = document.createElement('p'); note.textContent = 'API status is not available. Restart the local server.'; list.append(note); }
   dialog.showModal();
 });
-$('.dialog-close').addEventListener('click',()=>dialog.close());
+dialog.querySelector('.dialog-close').addEventListener('click',()=>dialog.close());
 dialog.addEventListener('click',event=>{if(event.target===dialog){const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close();}});
 trackPlayer = createTrackPlayer({
   host: $('#artist-panel'), resolve: fetchTrackPreview, scope: spotifyView ? 'spotify' : 'main',
@@ -1180,7 +1183,7 @@ creditPreview = createCreditPreview({
   onChange: credit => { creditGroup = credit; applyCreditGroup(); },
   onSelect: openTrackPanel,
   blocked: () => Boolean(nodeDrag || drag || cameraFrame !== null || document.hidden || pathPreview
-    || !$('#search-results').hidden || !$('#map-save-popover').hidden || $('#info-dialog').open),
+    || !$('#search-results').hidden || !$('#map-save-popover').hidden || $('#info-dialog').open || $('#account-dialog').open),
   motionAllowed: () => !motionPaused && !motionQuery.matches
 });
 window.addEventListener('scroll', () => creditPreview.reposition(), { passive: true });
@@ -1189,14 +1192,23 @@ window.addEventListener('blur', () => creditPreview.dismiss(true));
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') { creditPreview.dismiss(); if (selectedTrack) closeTrackPanel(); }
 });
+const account = createAccount();
+const mapScope = spotifyView ? 'spotify' : 'main';
 savedMapsUI = createSavedMapsUI({
   button: $('#save-map-button'), popover: $('#map-save-popover'),
   store: createMapStore({ getStorage: () => window.localStorage, scope: spotifyView ? 'spotify' : 'main' }),
+  cloudStore: createCloudMapStore({ account, scope: mapScope }), account,
   canSave: () => explorer.visibleIds.size > 0,
   defaultName: () => `${artists[explorer.trail[0]]?.name || 'My music'}’s connections`,
   snapshot: snapshotMap, openMap: openSavedMap,
   announce: message => { $('#graph-announcement').textContent = message; }
 });
+const accountUI = createAccountUI({
+  account, button: $('#account-button'), dialog: $('#account-dialog'), scope: mapScope,
+  snapshot: () => explorer.visibleIds.size ? snapshotMap() : null, openMap: openSavedMap,
+  announce: message => { $('#graph-announcement').textContent = message; }
+});
+void accountUI.start();
 render();
 let resizeFrame;
 if (typeof ResizeObserver !== 'undefined') {

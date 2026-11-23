@@ -5,3 +5,9 @@
 *.pem
 node_modules/
 .DS_Store
+.vercel/
+.streamlit/secrets.toml
+__pycache__/
+*.pyc
+assets/supabase.js
+supabase/.temp/

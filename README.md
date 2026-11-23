@@ -1,14 +1,15 @@
 # Artistree — personal music explorer
 
-A dependency-free Node.js app for exploring music through people and source-linked credits. English UI, Helvetica-first typography, circular nodes, off-white / blue styling, and optional graph animations.
+A Node.js app for exploring music through people and source-linked credits. English UI, Helvetica-first typography, circular nodes, off-white / blue styling, optional graph animations, and optional account-based tree saving.
 
 ## Run locally
 
-Requires **Node.js 22.12 or later**. No package installation is required. MusicBrainz public reads work without a key; Apple Music, Spotify, and Genius require your own credentials.
+Requires **Node.js 22.12 or later** and `npm ci`. MusicBrainz public reads work without a key locally; Apple Music, Spotify, and Genius require your own credentials. The public Vercel configuration disables MusicBrainz until a shared rate-limit queue is available.
 
 **[API_SETUP.md](API_SETUP.md)** explains how to obtain and configure each credential without putting secrets in chat or client code. Copy `.env.example` to `.env` without overwriting an existing file, then fill it locally. Restart after changing it.
 
 ```sh
+npm ci
 npm run dev
 ```
 
@@ -38,7 +39,7 @@ npm test
 - Clicking an artist centers their portrait in the graph viewport with a short camera pan, while keeping the current zoom unchanged. This also works for cached/exhausted nodes and while a lookup is pending. New branches do not fit or zoom the whole map away from that person. Manual pan, zoom, fit, or node dragging cancels pending centering, including late API updates; motion pause/reduced motion uses an immediate move instead of animation.
 - A slim **YOUR PATH** breadcrumb row follows the actual explored branch. Hover or keyboard-focus a name to highlight the verified path to it. Clicking a breadcrumb only selects and centers that person: it never expands the graph or requests credits. Sibling jumps use their recorded discovery route instead of inventing a direct connection. Back restores both the view state and its path.
 - The toolbar **Save** bookmark opens a small, non-modal popover (icon-only on mobile). Name the current map, or open **Saved maps**. Each save creates a separate local snapshot of visible artists, credit provenance, positions, path, and camera; opening it makes no credit API calls and starts a fresh Back history. It does not save authentication, pending requests, full upstream responses, or image bytes.
-- Saved maps are stored only in this browser's `localStorage`, at this site's exact origin. `localhost` and `127.0.0.1` have separate storage, as do different ports/browser profiles; clearing site data deletes bookmarks. There is no account, cloud sync, or cross-device sharing. Main and Spotify snapshots are isolated. Limits are 20 maps per view, 500 visible artists per main snapshot (20 on Spotify), and a bounded storage budget. Storage/quota errors are shown without silently overwriting old bookmarks. Delete requires an explicit second click, and never deletes the currently open graph.
+- **This browser** saves keep their original `localStorage` keys and exact-origin behavior. `localhost` and `127.0.0.1`, ports, and profiles have separate storage. Clearing site data deletes these bookmarks. Optional **My account** saving uses a dedicated Supabase project with owner-only RLS and explicit per-map copying from browser saves; login never uploads local maps automatically. Main and Spotify snapshots remain isolated, with 20 maps per owner/view and 500 visible artists per main snapshot (20 on Spotify). Delete requires an explicit second click and does not delete the open graph. See **[AUTH_SETUP.md](AUTH_SETUP.md)**: the three-provider UI and Naver server adapter are implemented, but providers/cloud storage remain unavailable until the dedicated project, migration, developer apps, and real login tests are completed.
 - Nodes gently float on independent rhythms; hovering pauses that node and highlights its connections. Selection adds a soft ripple, and newly revealed nodes unfold without replaying the entire map.
 - Small decorative particles travel along connections, with subtle motion on production lines. Use the pause button in the map’s upper-right corner to stop animations. System reduced-motion preferences are respected, and animations pause in background tabs.
 - Select an artist to add their documented connections without hiding existing artists or globally rearranging the map. Only crowded local neighbors move to make room. Selection centers the clicked portrait by panning the camera, without changing the zoom or relocating the graph itself.
@@ -66,7 +67,7 @@ The proposed **three or more shared composition/production songs** threshold is 
 
 Live images retain their source; absent images use initials. Spotify's unmodified official attribution logo is included under `assets/`. Before sharing, verify provider conditions for display, cropping, attribution, caching, non-commercial use, and combining sources. API access does not grant blanket image rights. Lyrics and audio are neither scraped nor hosted.
 
-The pre-player group-hover implementation is preserved by local annotated tag **`checkpoint-explorer-v4`** (`d673886`). The player experiment lives on `feat/track-preview-player`; no remote push is implied.
+The stable pre-deployment player/presentation checkpoint is **`checkpoint-explorer-v5`** (`925ac08`), already pushed on `feat/track-preview-player`. Deployment/account work is isolated on `feat/vercel-streamlit-deploy`; the stable checkpoint and `main` are unchanged.
 
 Secrets are server-only. Static files are explicitly allowlisted; `.env`, keys, server code, and API implementation files are not served. Calls have timeouts, short-lived bounded memory caches, sanitized errors, and a MusicBrainz-wide rate-limit queue.
 
@@ -95,7 +96,11 @@ Artist IDs are `apple:ID`, `spotify:ID`, `genius:ID`, or `musicbrainz:UUID`. Spo
 - `credit-preview.js`: branch-parent shared-track selection, recording-identity-based participant/edge groups, safe provenance, responsive tooltip placement, and cancellable hover/focus transitions.
 - `track-player.js`: allowlisted official embeds, persistent selected-track panel, stale-check cancellation, and destructive iframe teardown on switch/close.
 - `saved-maps.js`: versioned, allowlisted local snapshots, source isolation, safe URL/identity validation, and quota-safe storage.
-- `saved-maps-ui.js`: accessible toolbar popover, named snapshots, dated bookmark list, and explicit deletion.
+- `saved-maps-ui.js`: asynchronous browser/account popover, named snapshots, dated lists, explicit deletion and opt-in local-map copying.
+- `account-session.js`, `account-ui.js`: optional Google/Kakao/Naver login, PKCE callback cleanup, verified-user UI, login drafts, safe redirects and full-site sign-in from embeds.
+- `cloud-maps.js`: owner/view-scoped Supabase access using the existing snapshot whitelist and account-switch guards.
+- `api/auth-config.mjs`, `api/naver-auth.mjs`: public-only configuration and a bounded, encrypted-state Naver OAuth adapter; no Supabase service-role key is used.
+- `supabase/migrations/`: owner-protected, immutable saved trees and server-enforced limits. No remote migration is implied.
 - `data/genius-artist-chart.json`: manually checked daily chart snapshot; see `API_SETUP.md` for replacement and expiry rules.
 - `artist-identity.js`: shared verified provider-ID and artist-page URL matching.
 - `live-client.js`: local API client, verified identity matching, and stable positioning for new nodes.

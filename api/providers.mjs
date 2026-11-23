@@ -115,7 +115,7 @@ export function createProviders({ env = process.env, http = createHttpClient(), 
   const configured = {
     apple: Boolean(env.APPLE_MUSIC_DEVELOPER_TOKEN || (env.APPLE_MUSIC_TEAM_ID && env.APPLE_MUSIC_KEY_ID && env.APPLE_MUSIC_PRIVATE_KEY_PATH)),
     spotify: Boolean(env.SPOTIFY_CLIENT_ID && env.SPOTIFY_CLIENT_SECRET),
-    genius: Boolean(env.GENIUS_ACCESS_TOKEN), musicbrainz: true
+    genius: Boolean(env.GENIUS_ACCESS_TOKEN), musicbrainz: !env.VERCEL && env.MUSICBRAINZ_ENABLED !== 'false'
   };
   const storefront = /^[a-z]{2}$/.test(env.APPLE_MUSIC_STOREFRONT || '') ? env.APPLE_MUSIC_STOREFRONT : 'us';
   const market = /^[A-Z]{2}$/.test(env.SPOTIFY_MARKET || '') ? env.SPOTIFY_MARKET : 'US';
@@ -144,6 +144,7 @@ export function createProviders({ env = process.env, http = createHttpClient(), 
   }
 
   async function get(provider, path, params = {}) {
+    if (provider === 'musicbrainz' && !configured.musicbrainz) throw new ApiError('forbidden');
     const url = new URL(`${apiRoots[provider]}${path}`);
     Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
     const headers = { Accept: 'application/json' };
@@ -339,7 +340,8 @@ export function createProviders({ env = process.env, http = createHttpClient(), 
   for (const [key, adapter] of Object.entries(providers)) {
     adapter.configured = configured[key];
     adapter.name = PROVIDER_NAMES[key];
-    adapter.status = () => ({ id: key, name: adapter.name, configured: configured[key], ...http.status(key) });
+    adapter.status = () => ({ id: key, name: adapter.name, configured: configured[key], ...http.status(key),
+      ...(key === 'musicbrainz' && !configured.musicbrainz ? { note: 'Disabled: the public deployment requires a shared MusicBrainz rate-limit queue.' } : {}) });
   }
   return providers;
 }
